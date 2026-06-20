@@ -16,6 +16,7 @@ class UsageTrackerService : Service() {
     private var timer: Timer? = null
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var metadataHelper: AppMetadataHelper
+    private lateinit var categoryManager: CategoryManager
     private lateinit var usageStatsManager: UsageStatsManager
     private var activeLogId: Long = -1
     private var activePackageName: String? = null
@@ -27,6 +28,7 @@ class UsageTrackerService : Service() {
         super.onCreate()
         dbHelper = DatabaseHelper(this)
         metadataHelper = AppMetadataHelper(this)
+        categoryManager = CategoryManager(this)
         usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         createNotificationChannel()
     }
@@ -52,62 +54,80 @@ class UsageTrackerService : Service() {
 
     private fun tick() {
         processUsageEvents()
-        val sawForegroundApp = pollForegroundApp()
+        
+        val currentAppByPolling = getForegroundApp()
+        
         if (activeLogId != -1L) {
-            dbHelper.increaseDuration(activeLogId)
-        } else if (!insertedServiceStartLog && !sawForegroundApp) {
-            insertedServiceStartLog = true
-            startSession(
-                metadataHelper.synthetic(packageName, "Time Tracker service started", "SERVICE_STARTED_NO_FOREGROUND_APP"),
-                System.currentTimeMillis()
-            )
+            // We have an active session. 
+            // Check if polling confirms we are still in this app (or if polling is unavailable/lagging)
+            if (currentAppByPolling == null || activePackageName == currentAppByPolling) {
+                dbHelper.increaseDuration(activeLogId)
+            } else {
+                // Polling says we switched apps, but processUsageEvents didn't see it yet.
+                // To be aggressive, we switch now.
+                endActiveSession(System.currentTimeMillis(), "POLL_SWITCHED")
+                startSession(metadataHelper.fromPackage(currentAppByPolling), System.currentTimeMillis())
+                dbHelper.increaseDuration(activeLogId)
+            }
+        } else {
+            // No active session. Try to start one if polling finds an app.
+            if (currentAppByPolling != null) {
+                startSession(metadataHelper.fromPackage(currentAppByPolling), System.currentTimeMillis())
+                dbHelper.increaseDuration(activeLogId)
+            } else if (!insertedServiceStartLog) {
+                insertedServiceStartLog = true
+                startSession(
+                    metadataHelper.synthetic(packageName, "Time Tracker service started", "SERVICE_STARTED"),
+                    System.currentTimeMillis()
+                )
+                dbHelper.increaseDuration(activeLogId)
+            }
         }
-    }
-
-    private fun pollForegroundApp(): Boolean {
-        val currentApp = getForegroundApp() ?: return false
-        if (activePackageName == currentApp) return true
-        if (activeLogId != -1L) {
-            endActiveSession(System.currentTimeMillis(), "POLL_SWITCHED")
-        }
-        startSession(metadataHelper.fromPackage(currentApp), System.currentTimeMillis())
-        return true
     }
 
     private fun processUsageEvents() {
         val now = System.currentTimeMillis()
-        if (lastEventQueryTime == 0L) {
-            lastEventQueryTime = now - 60_000L
-        }
-        val events = usageStatsManager.queryEvents(lastEventQueryTime, now)
+        // Query events from the last processed time until now
+        val queryStart = if (lastEventQueryTime == 0L) now - 60_000L else lastEventQueryTime
+        val events = usageStatsManager.queryEvents(queryStart, now)
         val event = UsageEvents.Event()
+        var maxEventTime = queryStart
+
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
+            if (event.timeStamp > maxEventTime) {
+                maxEventTime = event.timeStamp
+            }
             handleUsageEvent(event)
         }
-        lastEventQueryTime = now
+        // Update last processed time to the latest event timestamp or current time
+        lastEventQueryTime = if (maxEventTime > queryStart) maxEventTime else now
     }
 
     private fun handleUsageEvent(event: UsageEvents.Event) {
         val packageName = event.packageName ?: return
-        when {
-            AppMetadataHelper.isForegroundEvent(event.eventType) -> {
+        when (event.eventType) {
+            UsageEvents.Event.ACTIVITY_RESUMED -> {
                 val metadata = metadataHelper.fromEvent(event)
                 if (activeLogId != -1L) {
-                    if (activePackageName == packageName && activeActivityClass == metadata.activityClass) {
+                    // Only switch sessions if the PACKAGE changed.
+                    // This prevents splits when navigating between activities in the same app.
+                    if (activePackageName == packageName) {
                         return
                     }
                     endActiveSession(event.timeStamp, "SESSION_SWITCHED")
                 }
                 startSession(metadata, event.timeStamp)
             }
-            AppMetadataHelper.isBackgroundEvent(event.eventType) -> {
+            UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> {
+                // End session when the phone is locked or screen turned off
                 if (activeLogId != -1L) {
-                    if (activePackageName == packageName) {
-                        endActiveSession(event.timeStamp, AppMetadataHelper.eventTypeName(event.eventType))
-                    }
+                    endActiveSession(event.timeStamp, AppMetadataHelper.eventTypeName(event.eventType))
                 }
             }
+            // We specifically IGNORE ACTIVITY_PAUSED here. 
+            // Polling and SCREEN_NON_INTERACTIVE handle app exits more reliably 
+            // without splitting sessions during internal app navigation.
         }
     }
 
@@ -118,7 +138,8 @@ class UsageTrackerService : Service() {
             activeActivityClass = null
             return
         }
-        activeLogId = dbHelper.insertLog(metadata, startTimestampMs)
+        val category = categoryManager.resolveCategory(metadata.packageName, metadata.appLabel)
+        activeLogId = dbHelper.insertLog(metadata, startTimestampMs, category)
         activePackageName = metadata.packageName
         activeActivityClass = metadata.activityClass
     }

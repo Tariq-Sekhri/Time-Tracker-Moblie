@@ -47,6 +47,35 @@ class AppMetadataHelper(private val context: Context) {
         val appInfo = runCatching {
             packageManager.getApplicationInfo(packageName, 0)
         }.getOrNull()
+
+        val appLabel = appInfo?.let { info ->
+            val label = packageManager.getApplicationLabel(info).toString()
+            if (label == packageName || label.isBlank()) {
+                // Fallback 1: Try launcher intent
+                val launcherLabel = runCatching {
+                    val intent = packageManager.getLaunchIntentForPackage(packageName)
+                    intent?.let { packageManager.getActivityInfo(it.component!!, 0).loadLabel(packageManager).toString() }
+                }.getOrNull()
+                
+                if (launcherLabel != null && launcherLabel != packageName) {
+                    launcherLabel
+                } else {
+                    // Fallback 2: Try any activity with a label
+                    runCatching {
+                        val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_ACTIVITIES.toLong()))
+                        } else {
+                            @Suppress("DEPRECATION")
+                            packageManager.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES)
+                        }
+                        pInfo.activities?.firstNotNullOfOrNull { it.loadLabel(packageManager).toString().takeIf { l -> l != packageName } }
+                    }.getOrNull() ?: label
+                }
+            } else {
+                label
+            }
+        }
+
         val packageInfo = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
@@ -67,7 +96,7 @@ class AppMetadataHelper(private val context: Context) {
 
         return RichLogMetadata(
             packageName = packageName,
-            appLabel = appInfo?.let { packageManager.getApplicationLabel(it).toString() },
+            appLabel = appLabel,
             activityClass = activityClass,
             lastTimeUsed = usageStats?.lastTimeUsed,
             totalTimeInForegroundMs = usageStats?.totalTimeInForeground,

@@ -20,11 +20,9 @@ class SkippedAppsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val pad = (12 * resources.displayMetrics.density).toInt()
         listView = ListView(this).apply {
-            setPadding(pad, pad, pad, pad)
             clipToPadding = false
-            setBackgroundColor(Color.rgb(18, 18, 18))
+            setBackgroundColor(Color.BLACK)
             divider = null
         }
 
@@ -32,7 +30,7 @@ class SkippedAppsActivity : AppCompatActivity() {
             title = "Skipped Apps",
             content = listView,
             actions = listOf(
-                HeaderAction("Refresh") { refresh() },
+                HeaderAction("Clear All") { showClearAllConfirm() },
                 HeaderAction("Add") { showAddDialog() }
             )
         )
@@ -61,10 +59,10 @@ class SkippedAppsActivity : AppCompatActivity() {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val view = super.getView(position, convertView, parent)
                 val text = view.findViewById<TextView>(android.R.id.text1)
-                text.setTextColor(Color.WHITE)
-                text.textSize = 15f
-                text.setPadding(20, 18, 20, 18)
-                view.setBackgroundColor(Color.rgb(18, 18, 18))
+                text.setTextColor(Color.parseColor("#D1D5DB"))
+                text.textSize = 14f
+                text.setPadding(dp(16), dp(16), dp(16), dp(16))
+                view.setBackgroundColor(if (position % 2 == 0) Color.BLACK else Color.parseColor("#111827"))
                 return view
             }
         }
@@ -74,11 +72,12 @@ class SkippedAppsActivity : AppCompatActivity() {
         val input = EditText(this).apply {
             hint = "com.example.app or .*youtube.*"
             setSingleLine(true)
+            setTextColor(Color.BLACK)
         }
 
         AlertDialog.Builder(this)
             .setTitle("Add skipped app")
-            .setMessage("Matches package name or app label. Plain text and regex both work.")
+            .setMessage("Matches package name or app label.")
             .setView(input)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save") { _, _ ->
@@ -87,8 +86,22 @@ class SkippedAppsActivity : AppCompatActivity() {
                     Toast.makeText(this, "Pattern is required", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                dbHelper.addSkippedApp(pattern)
-                refresh()
+                
+                val matchCount = dbHelper.countMatchingLogs(pattern)
+                if (matchCount > 0) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Delete matching logs?")
+                        .setMessage("This pattern matches $matchCount existing log entries. Delete them?")
+                        .setNegativeButton("No", null)
+                        .setPositiveButton("Yes") { _, _ ->
+                            dbHelper.addSkippedApp(pattern)
+                            refresh()
+                        }
+                        .show()
+                } else {
+                    dbHelper.addSkippedApp(pattern)
+                    refresh()
+                }
             }
             .show()
     }
@@ -101,6 +114,19 @@ class SkippedAppsActivity : AppCompatActivity() {
             .setPositiveButton("Remove") { _, _ ->
                 dbHelper.deleteSkippedApp(row.id)
                 refresh()
+            }
+            .show()
+    }
+
+    private fun showClearAllConfirm() {
+        AlertDialog.Builder(this)
+            .setTitle("Clear all skipped apps?")
+            .setMessage("This will remove all your custom skip patterns.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Clear All") { _, _ ->
+                dbHelper.deleteAllSkippedApps()
+                refresh()
+                Toast.makeText(this, "Skipped apps cleared", Toast.LENGTH_SHORT).show()
             }
             .show()
     }

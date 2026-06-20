@@ -25,7 +25,7 @@ fun AppCompatActivity.setContentViewWithHeader(
 ) {
     val root = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setBackgroundColor(Color.rgb(18, 18, 18))
+        setBackgroundColor(Color.BLACK)
     }
 
     val headerBaseTop = 0
@@ -33,15 +33,19 @@ fun AppCompatActivity.setContentViewWithHeader(
     val header = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setBackgroundColor(Color.rgb(35, 35, 35))
-        setPadding(dp(8), headerBaseTop, dp(8), headerBaseBottom)
-        minimumHeight = dp(56)
+        setBackgroundColor(Color.parseColor("#1F2937")) // Desktop Header Color
+        setPadding(dp(12), headerBaseTop, dp(12), headerBaseBottom)
+        minimumHeight = dp(64)
     }
 
     if (showBack) {
         header.addView(Button(this).apply {
             text = "<"
             minWidth = dp(48)
+            transformationMethod = null
+            setBackgroundColor(Color.parseColor("#374151"))
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
             setOnClickListener { finish() }
         })
     }
