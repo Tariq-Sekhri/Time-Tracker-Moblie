@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"
@@ -17,6 +18,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.TimeTrackerMoblie"
+        android:usesCleartextTraffic="true"
         xmlns:tools="http://schemas.android.com/tools">
 
         <activity
@@ -34,6 +36,10 @@
 
         <activity
             android:name=".SkippedAppsActivity"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".SyncActivity"
             android:parentActivityName=".MainActivity" />
 
         <service
