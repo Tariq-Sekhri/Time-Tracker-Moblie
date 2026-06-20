@@ -52,28 +52,56 @@ class UsageTrackerService : Service() {
         }, 0, 1000)
     }
 
+    private var pollingFlickerCount = 0
+    private var lastPolledPackage: String? = null
+
     private fun tick() {
+        // 1. Process real UsageEvents first (most accurate)
         processUsageEvents()
         
+        // 2. Polling as a fallback to catch app exits or missed events
         val currentAppByPolling = getForegroundApp()
         
         if (activeLogId != -1L) {
-            // We have an active session. 
-            // Check if polling confirms we are still in this app (or if polling is unavailable/lagging)
+            // We have an active session.
             if (currentAppByPolling == null || activePackageName == currentAppByPolling) {
+                // Polling confirms we're still in the app (or is inconclusive)
                 dbHelper.increaseDuration(activeLogId)
             } else {
-                // Polling says we switched apps, but processUsageEvents didn't see it yet.
-                // To be aggressive, we switch now.
-                endActiveSession(System.currentTimeMillis(), "POLL_SWITCHED")
-                startSession(metadataHelper.fromPackage(currentAppByPolling), System.currentTimeMillis())
-                dbHelper.increaseDuration(activeLogId)
+                // Polling says we are in a different app.
+                // We trust polling if it's consistent.
+                if (currentAppByPolling == lastPolledPackage) {
+                    pollingFlickerCount++
+                } else {
+                    pollingFlickerCount = 1
+                }
+                lastPolledPackage = currentAppByPolling
+
+                if (pollingFlickerCount >= 3) { // Increased to 3 seconds for better stability
+                    endActiveSession(System.currentTimeMillis(), "POLL_SWITCHED")
+                    // The next tick or event will start the new session
+                } else {
+                    // Still count time for the active session while we wait for stability
+                    dbHelper.increaseDuration(activeLogId)
+                }
             }
         } else {
-            // No active session. Try to start one if polling finds an app.
+            // No active session. 
             if (currentAppByPolling != null) {
-                startSession(metadataHelper.fromPackage(currentAppByPolling), System.currentTimeMillis())
-                dbHelper.increaseDuration(activeLogId)
+                if (currentAppByPolling == lastPolledPackage) {
+                    pollingFlickerCount++
+                } else {
+                    pollingFlickerCount = 1
+                }
+                lastPolledPackage = currentAppByPolling
+
+                if (pollingFlickerCount >= 2) {
+                    val metadata = metadataHelper.fromPackage(currentAppByPolling)
+                    startSession(metadata, System.currentTimeMillis() - 2000) // retroactive start
+                    dbHelper.increaseDuration(activeLogId)
+                    dbHelper.increaseDuration(activeLogId)
+                    pollingFlickerCount = 0
+                }
             } else if (!insertedServiceStartLog) {
                 insertedServiceStartLog = true
                 startSession(
@@ -142,6 +170,10 @@ class UsageTrackerService : Service() {
         activeLogId = dbHelper.insertLog(metadata, startTimestampMs, category)
         activePackageName = metadata.packageName
         activeActivityClass = metadata.activityClass
+        
+        // Reset polling stability tracking on new session
+        pollingFlickerCount = 0
+        lastPolledPackage = metadata.packageName
     }
 
     private fun isSkipped(metadata: RichLogMetadata): Boolean {

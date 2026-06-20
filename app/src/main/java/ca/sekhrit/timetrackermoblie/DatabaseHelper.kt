@@ -194,9 +194,26 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun endLog(id: Long, endTimestampMs: Long, endEventType: String) {
+        // Retrieve start timestamp to calculate total duration as a fallback
+        val cursor = readableDatabase.query(TABLE_LOGS, arrayOf(COLUMN_START_TIMESTAMP, COLUMN_DURATION), "$COLUMN_ID=?", arrayOf(id.toString()), null, null, null)
+        var finalDuration: Long? = null
+        if (cursor.moveToFirst()) {
+            val startTs = cursor.getLong(0)
+            val currentDuration = cursor.getLong(1)
+            val calculatedDuration = (endTimestampMs - startTs) / 1000
+            // If the counter-based duration is significantly lower than the time-based one, trust the time-based one.
+            if (calculatedDuration > currentDuration) {
+                finalDuration = calculatedDuration
+            }
+        }
+        cursor.close()
+
         val values = ContentValues().apply {
             put(COLUMN_END_TIMESTAMP, endTimestampMs)
             put(COLUMN_END_EVENT_TYPE, endEventType)
+            if (finalDuration != null) {
+                put(COLUMN_DURATION, finalDuration)
+            }
         }
         writableDatabase.update(TABLE_LOGS, values, "$COLUMN_ID=?", arrayOf(id.toString()))
     }

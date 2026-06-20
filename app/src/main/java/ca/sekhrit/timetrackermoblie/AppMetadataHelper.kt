@@ -4,6 +4,7 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -45,35 +46,61 @@ class AppMetadataHelper(private val context: Context) {
         eventType: String? = null
     ): RichLogMetadata {
         val appInfo = runCatching {
-            packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
         }.getOrNull()
 
         val appLabel = appInfo?.let { info ->
-            val label = packageManager.getApplicationLabel(info).toString()
-            if (label == packageName || label.isBlank()) {
-                // Fallback 1: Try launcher intent
-                val launcherLabel = runCatching {
-                    val intent = packageManager.getLaunchIntentForPackage(packageName)
-                    intent?.let { packageManager.getActivityInfo(it.component!!, 0).loadLabel(packageManager).toString() }
-                }.getOrNull()
-                
-                if (launcherLabel != null && launcherLabel != packageName) {
-                    launcherLabel
-                } else {
-                    // Fallback 2: Try any activity with a label
-                    runCatching {
-                        val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_ACTIVITIES.toLong()))
-                        } else {
-                            @Suppress("DEPRECATION")
-                            packageManager.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES)
-                        }
-                        pInfo.activities?.firstNotNullOfOrNull { it.loadLabel(packageManager).toString().takeIf { l -> l != packageName } }
-                    }.getOrNull() ?: label
-                }
-            } else {
-                label
+            // Try to find a label that isn't just the package name
+            var label: String? = null
+
+            // 1. Try specific activity label
+            if (activityClass != null) {
+                label = runCatching {
+                    packageManager.getActivityInfo(android.content.ComponentName(packageName, activityClass), 0)
+                        .loadLabel(packageManager).toString()
+                }.getOrNull()?.takeIf { it != packageName && it.isNotBlank() }
             }
+
+            // 2. Try application label
+            if (label == null) {
+                label = runCatching {
+                    info.loadLabel(packageManager).toString()
+                }.getOrNull()?.takeIf { it != packageName && it.isNotBlank() }
+            }
+
+            // 3. Try resource string directly
+            if (label == null && info.labelRes != 0) {
+                label = runCatching {
+                    context.createPackageContext(packageName, 0).resources.getString(info.labelRes)
+                }.getOrNull()?.takeIf { it != packageName && it.isNotBlank() }
+            }
+
+            // 4. Try launcher activity label
+            if (label == null) {
+                label = runCatching {
+                    val intent = packageManager.getLaunchIntentForPackage(packageName)
+                    intent?.let { 
+                        packageManager.getActivityInfo(it.component!!, 0).loadLabel(packageManager).toString() 
+                    }
+                }.getOrNull()?.takeIf { it != packageName && it.isNotBlank() }
+            }
+
+            // 5. Try scanning all activities (as a last resort before giving up)
+            if (label == null) {
+                label = runCatching {
+                    val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_ACTIVITIES.toLong()))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        packageManager.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES)
+                    }
+                    pInfo.activities?.firstNotNullOfOrNull { act ->
+                        act.loadLabel(packageManager).toString().takeIf { it != packageName && it.isNotBlank() }
+                    }
+                }.getOrNull()
+            }
+
+            label ?: packageManager.getApplicationLabel(info).toString()
         }
 
         val packageInfo = runCatching {
