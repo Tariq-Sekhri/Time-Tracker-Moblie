@@ -12,6 +12,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.*
+import kotlin.math.max
 
 class SyncManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("TimeTrackerPrefs", Context.MODE_PRIVATE)
@@ -30,7 +31,37 @@ class SyncManager(private val context: Context) {
     }
 
     fun unlockServer() {
-        prefs.edit().putBoolean("server_locked", false).apply()
+        prefs.edit()
+            .putBoolean("server_locked", false)
+            .remove(PREF_NEXT_AUTO_PUSH_AT_MS)
+            .apply()
+    }
+
+    fun updateNextAutoPush(syncCounter: Int) {
+        if (!isServerLocked()) {
+            prefs.edit().remove(PREF_NEXT_AUTO_PUSH_AT_MS).apply()
+            return
+        }
+
+        val remainingSeconds = (AUTO_PUSH_INTERVAL_SECONDS - syncCounter)
+            .coerceIn(1, AUTO_PUSH_INTERVAL_SECONDS)
+        prefs.edit()
+            .putLong(PREF_NEXT_AUTO_PUSH_AT_MS, System.currentTimeMillis() + remainingSeconds * 1000L)
+            .apply()
+    }
+
+    fun resetNextAutoPush() {
+        if (!isServerLocked()) return
+        prefs.edit()
+            .putLong(PREF_NEXT_AUTO_PUSH_AT_MS, System.currentTimeMillis() + AUTO_PUSH_INTERVAL_SECONDS * 1000L)
+            .apply()
+    }
+
+    fun secondsUntilNextAutoPush(): Long? {
+        if (!isServerLocked()) return null
+        val nextPushAt = prefs.getLong(PREF_NEXT_AUTO_PUSH_AT_MS, 0L)
+        if (nextPushAt <= 0L) return null
+        return max(0L, (nextPushAt - System.currentTimeMillis() + 999L) / 1000L)
     }
 
     fun pushLogs(onComplete: (Boolean, String) -> Unit) {
@@ -175,4 +206,9 @@ class SyncManager(private val context: Context) {
         val duration: Long
     )
     data class LogPayload(val device: BackendDevice, val logs: List<BackendLog>)
+
+    companion object {
+        const val AUTO_PUSH_INTERVAL_SECONDS = 300
+        private const val PREF_NEXT_AUTO_PUSH_AT_MS = "next_auto_push_at_ms"
+    }
 }

@@ -61,11 +61,14 @@ class UsageTrackerService : Service() {
     private fun tick() {
         // 1. Periodic Cloud Sync (every 5 minutes)
         syncCounter++
-        if (syncCounter >= 300) {
+        if (syncCounter >= SyncManager.AUTO_PUSH_INTERVAL_SECONDS) {
             syncCounter = 0
             if (syncManager.isServerLocked()) {
+                syncManager.resetNextAutoPush()
                 syncManager.pushLogs { _, _ -> }
             }
+        } else {
+            syncManager.updateNextAutoPush(syncCounter)
         }
 
         // 2. Process real UsageEvents first (most accurate)

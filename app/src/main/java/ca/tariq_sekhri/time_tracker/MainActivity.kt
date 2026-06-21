@@ -261,10 +261,26 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+                val btnSkip = ImageView(context).apply {
+                    setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+                    setColorFilter(Color.parseColor("#F59E0B"))
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    contentDescription = "Add to skipped apps"
+                    id = View.generateViewId()
+                    val lp = RelativeLayout.LayoutParams(dp(40), dp(40)).apply {
+                        addRule(RelativeLayout.LEFT_OF, btnCopy.id)
+                        addRule(RelativeLayout.CENTER_VERTICAL)
+                    }
+                    layoutParams = lp
+                    setOnClickListener {
+                        showAddSkippedAppDialog(entry.packageName)
+                    }
+                }
+
                 val textLayout = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     val lp = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
-                        addRule(RelativeLayout.LEFT_OF, btnCopy.id)
+                        addRule(RelativeLayout.LEFT_OF, btnSkip.id)
                     }
                     layoutParams = lp
                 }
@@ -296,6 +312,7 @@ class MainActivity : AppCompatActivity() {
                 textLayout.addView(tvDuration)
 
                 rowRoot.addView(textLayout)
+                rowRoot.addView(btnSkip)
                 rowRoot.addView(btnCopy)
                 rowRoot.addView(btnDelete)
 
@@ -308,6 +325,46 @@ class MainActivity : AppCompatActivity() {
                 return rowRoot
             }
         }
+    }
+
+    private fun showAddSkippedAppDialog(defaultPattern: String = "") {
+        val input = EditText(this).apply {
+            hint = "com.example.app or .*youtube.*"
+            setSingleLine(true)
+            setText(defaultPattern)
+            setSelection(text.length)
+            setTextColor(Color.BLACK)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Add skipped app")
+            .setMessage("Matches package name or app label.")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                val pattern = input.text.toString().trim()
+                if (pattern.isBlank()) {
+                    Toast.makeText(this, "Pattern is required", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+
+                val matchCount = dbHelper.countMatchingLogs(pattern)
+                if (matchCount > 0) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Delete matching logs?")
+                        .setMessage("This pattern matches $matchCount existing log entries. Delete them?")
+                        .setNegativeButton("No", null)
+                        .setPositiveButton("Yes") { _, _ ->
+                            dbHelper.addSkippedApp(pattern)
+                            refreshLogs()
+                        }
+                        .show()
+                } else {
+                    dbHelper.addSkippedApp(pattern)
+                    refreshLogs()
+                }
+            }
+            .show()
     }
 
     private fun formatDuration(seconds: Long): String {

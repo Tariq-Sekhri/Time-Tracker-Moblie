@@ -2,7 +2,10 @@ package ca.tariq_sekhri.time_tracker
 
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
+import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import okhttp3.*
@@ -14,9 +17,19 @@ class SyncActivity : AppCompatActivity() {
     private val client = OkHttpClient()
 
     private lateinit var editIp: EditText
+    private lateinit var tvLabel: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var tvCountdown: TextView
+    private lateinit var syncPanel: LinearLayout
     private lateinit var btnCheck: Button
     private lateinit var btnPush: Button
+    private val countdownHandler = Handler(Looper.getMainLooper())
+    private val countdownTicker = object : Runnable {
+        override fun run() {
+            updateCountdown()
+            countdownHandler.postDelayed(this, 1000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,7 +46,7 @@ class SyncActivity : AppCompatActivity() {
         }
         rootScroll.addView(content)
 
-        val tvLabel = TextView(this).apply {
+        tvLabel = TextView(this).apply {
             text = "Server IP / Address"
             setTextColor(Color.parseColor("#9CA3AF"))
             textSize = 14f
@@ -54,10 +67,34 @@ class SyncActivity : AppCompatActivity() {
         tvStatus = TextView(this).apply {
             text = if (syncManager.isServerLocked()) "Server locked" else "Not connected"
             setTextColor(Color.GRAY)
-            textSize = 14f
-            setPadding(0, dp(8), 0, dp(16))
+            textSize = 16f
+            setPadding(0, dp(12), 0, dp(16))
         }
         content.addView(tvStatus)
+
+        syncPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#111827"))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            visibility = View.GONE
+        }
+        content.addView(syncPanel, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(16)
+        })
+
+        syncPanel.addView(TextView(this).apply {
+            text = "Next automatic push"
+            setTextColor(Color.parseColor("#9CA3AF"))
+            textSize = 13f
+        })
+
+        tvCountdown = TextView(this).apply {
+            text = "Waiting for tracker..."
+            setTextColor(Color.WHITE)
+            textSize = 28f
+            setPadding(0, dp(4), 0, 0)
+        }
+        syncPanel.addView(tvCountdown)
 
         btnCheck = Button(this).apply {
             transformationMethod = null
@@ -90,13 +127,40 @@ class SyncActivity : AppCompatActivity() {
         setContentViewWithHeader("Cloud Sync", rootScroll)
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateUiState()
+        countdownHandler.removeCallbacks(countdownTicker)
+        countdownHandler.post(countdownTicker)
+    }
+
+    override fun onPause() {
+        countdownHandler.removeCallbacks(countdownTicker)
+        super.onPause()
+    }
+
     private fun updateUiState() {
         val locked = syncManager.isServerLocked()
+        tvLabel.visibility = if (locked) View.GONE else View.VISIBLE
+        editIp.visibility = if (locked) View.GONE else View.VISIBLE
         editIp.isEnabled = !locked
+        syncPanel.visibility = if (locked) View.VISIBLE else View.GONE
         btnCheck.text = if (locked) "Change Server" else "Check & Lock"
+        btnPush.visibility = if (locked) View.VISIBLE else View.GONE
         btnPush.isEnabled = locked
         tvStatus.text = if (locked) "Server locked and ready" else "Enter server IP to begin"
         tvStatus.setTextColor(if (locked) Color.GREEN else Color.GRAY)
+        updateCountdown()
+    }
+
+    private fun updateCountdown() {
+        if (!syncManager.isServerLocked()) return
+        val seconds = syncManager.secondsUntilNextAutoPush()
+        tvCountdown.text = if (seconds == null) {
+            "Waiting for tracker..."
+        } else {
+            formatCountdown(seconds)
+        }
     }
 
     private fun checkAndLockServer() {
@@ -125,6 +189,7 @@ class SyncActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (response.isSuccessful && body == "Time Tracker Backend v1") {
                         syncManager.lockServer(ip)
+                        syncManager.resetNextAutoPush()
                         updateUiState()
                         tvStatus.text = "Success! Locked to $body"
                         tvStatus.setTextColor(Color.GREEN)
@@ -147,7 +212,14 @@ class SyncActivity : AppCompatActivity() {
                 if (success) {
                     Toast.makeText(this@SyncActivity, "Sync complete", Toast.LENGTH_SHORT).show()
                 }
+                updateCountdown()
             }
         }
+    }
+
+    private fun formatCountdown(totalSeconds: Long): String {
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return "${minutes}m ${seconds.toString().padStart(2, '0')}s"
     }
 }
