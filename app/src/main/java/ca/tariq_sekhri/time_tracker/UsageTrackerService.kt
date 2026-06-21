@@ -24,7 +24,6 @@ class UsageTrackerService : Service() {
     private var activeActivityClass: String? = null
     private var lastEventQueryTime: Long = 0L
     private var insertedServiceStartLog = false
-    private var syncCounter = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -60,15 +59,14 @@ class UsageTrackerService : Service() {
 
     private fun tick() {
         // 1. Periodic Cloud Sync (every 5 minutes)
-        syncCounter++
-        if (syncCounter >= SyncManager.AUTO_PUSH_INTERVAL_SECONDS) {
-            syncCounter = 0
-            if (syncManager.isServerLocked()) {
+        if (syncManager.isServerLocked()) {
+            val secondsUntil = syncManager.secondsUntilNextAutoPush()
+            if (secondsUntil == null) {
                 syncManager.resetNextAutoPush()
+            } else if (secondsUntil == 0L) {
+                // pushLogs() now calls resetNextAutoPush() internally
                 syncManager.pushLogs { _, _ -> }
             }
-        } else {
-            syncManager.updateNextAutoPush(syncCounter)
         }
 
         // 2. Process real UsageEvents first (most accurate)
