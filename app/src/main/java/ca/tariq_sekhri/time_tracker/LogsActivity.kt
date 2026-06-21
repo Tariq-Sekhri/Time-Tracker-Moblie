@@ -1,4 +1,4 @@
-package ca.sekhrit.timetrackermoblie
+package ca.tariq_sekhri.time_tracker
 
 import android.os.Bundle
 import android.graphics.Color
@@ -74,7 +74,7 @@ class LogsActivity : AppCompatActivity() {
         val end = entry.endTimestamp?.let { sdf.format(Date(it)) } ?: "running"
         val duration = formatDuration(entry.duration)
         
-        return "$name\n${entry.packageName}\n$start - $end   $duration"
+        return "$name\n$start - $end   $duration"
     }
 
     private fun formatDuration(seconds: Long): String {

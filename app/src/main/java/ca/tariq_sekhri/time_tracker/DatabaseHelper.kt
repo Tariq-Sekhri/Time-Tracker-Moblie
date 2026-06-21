@@ -1,4 +1,4 @@
-package ca.sekhrit.timetrackermoblie
+package ca.tariq_sekhri.time_tracker
 
 import android.content.ContentValues
 import android.content.Context
@@ -9,12 +9,13 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     companion object {
         private const val DATABASE_NAME = "time_tracker.db"
-        private const val DATABASE_VERSION = 10
+        private const val DATABASE_VERSION = 11
 
         const val TABLE_LOGS = "logs"
         const val TABLE_SKIPPED_APPS = "skipped_apps"
         const val TABLE_CATEGORIES = "categories"
         const val TABLE_REGEX = "category_regex"
+        const val TABLE_DELETED_LOGS = "deleted_logs"
 
         const val COLUMN_ID = "id"
         const val COLUMN_PACKAGE_NAME = "package_name"
@@ -106,6 +107,12 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             )
         """.trimIndent())
 
+        db?.execSQL("""
+            CREATE TABLE $TABLE_DELETED_LOGS (
+                $COLUMN_ID INTEGER PRIMARY KEY
+            )
+        """.trimIndent())
+
         insertDefaultCategories(db)
     }
 
@@ -161,8 +168,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             }
             insertDefaultCategories(db)
         }
-        if (oldVersion < 10) {
-            db?.delete(TABLE_SKIPPED_APPS, null, null)
+        if (oldVersion < 11) {
+            db?.execSQL("CREATE TABLE IF NOT EXISTS $TABLE_DELETED_LOGS ($COLUMN_ID INTEGER PRIMARY KEY)")
         }
     }
 
@@ -246,8 +253,27 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         return list
     }
 
+    fun getLogsAfter(id: Long): List<LogEntry> {
+        val list = mutableListOf<LogEntry>()
+        val cursor = readableDatabase.rawQuery("SELECT * FROM $TABLE_LOGS WHERE $COLUMN_ID > ? ORDER BY $COLUMN_ID ASC", arrayOf(id.toString()))
+        if (cursor.moveToFirst()) {
+            do { list.add(cursorToLogEntry(cursor)) } while (cursor.moveToNext())
+        }
+        cursor.close()
+        return list
+    }
+
     fun deleteAllLogs() {
-        writableDatabase.delete(TABLE_LOGS, null, null)
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            // Record all existing IDs as deleted
+            db.execSQL("INSERT OR IGNORE INTO $TABLE_DELETED_LOGS ($COLUMN_ID) SELECT $COLUMN_ID FROM $TABLE_LOGS")
+            db.delete(TABLE_LOGS, null, null)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun wipeEverything() {
@@ -256,12 +282,38 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         db.delete(TABLE_SKIPPED_APPS, null, null)
         db.delete(TABLE_CATEGORIES, null, null)
         db.delete(TABLE_REGEX, null, null)
+        db.delete(TABLE_DELETED_LOGS, null, null)
         insertDefaultCategories(db)
         insertDefaultSkippedApps(db)
     }
 
     fun deleteLog(id: Long) {
-        writableDatabase.delete(TABLE_LOGS, "$COLUMN_ID=?", arrayOf(id.toString()))
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(TABLE_LOGS, "$COLUMN_ID=?", arrayOf(id.toString()))
+            val values = ContentValues().apply { put(COLUMN_ID, id) }
+            db.insertWithOnConflict(TABLE_DELETED_LOGS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun getDeletedLogIds(): List<Long> {
+        val list = mutableListOf<Long>()
+        val cursor = readableDatabase.rawQuery("SELECT $COLUMN_ID FROM $TABLE_DELETED_LOGS", null)
+        if (cursor.moveToFirst()) {
+            do { list.add(cursor.getLong(0)) } while (cursor.moveToNext())
+        }
+        cursor.close()
+        return list
+    }
+
+    fun clearDeletedLogs(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        val placeholders = ids.joinToString(",") { "?" }
+        writableDatabase.delete(TABLE_DELETED_LOGS, "$COLUMN_ID IN ($placeholders)", ids.map { it.toString() }.toTypedArray())
     }
 
     fun getSkippedApps(): List<SkippedAppRow> {
@@ -292,6 +344,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             try {
                 idsToDelete.forEach { id ->
                     db.delete(TABLE_LOGS, "$COLUMN_ID=?", arrayOf(id.toString()))
+                    val values = ContentValues().apply { put(COLUMN_ID, id) }
+                    db.insertWithOnConflict(TABLE_DELETED_LOGS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
                 }
                 db.setTransactionSuccessful()
             } finally {

@@ -1,4 +1,4 @@
-package ca.sekhrit.timetrackermoblie
+package ca.tariq_sekhri.time_tracker
 
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStats
@@ -100,7 +100,7 @@ class AppMetadataHelper(private val context: Context) {
                 }.getOrNull()
             }
 
-            label ?: packageManager.getApplicationLabel(info).toString()
+            label
         }
 
         val packageInfo = runCatching {

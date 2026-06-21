@@ -1,4 +1,4 @@
-package ca.sekhrit.timetrackermoblie
+package ca.tariq_sekhri.time_tracker
 
 import android.graphics.Color
 import android.graphics.Typeface

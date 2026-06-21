@@ -1,4 +1,4 @@
-package ca.sekhrit.timetrackermoblie
+package ca.tariq_sekhri.time_tracker
 
 import android.app.*
 import android.app.usage.UsageEvents
@@ -18,17 +18,20 @@ class UsageTrackerService : Service() {
     private lateinit var metadataHelper: AppMetadataHelper
     private lateinit var categoryManager: CategoryManager
     private lateinit var usageStatsManager: UsageStatsManager
+    private lateinit var syncManager: SyncManager
     private var activeLogId: Long = -1
     private var activePackageName: String? = null
     private var activeActivityClass: String? = null
     private var lastEventQueryTime: Long = 0L
     private var insertedServiceStartLog = false
+    private var syncCounter = 0
 
     override fun onCreate() {
         super.onCreate()
         dbHelper = DatabaseHelper(this)
         metadataHelper = AppMetadataHelper(this)
         categoryManager = CategoryManager(this)
+        syncManager = SyncManager(this)
         usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         createNotificationChannel()
     }
@@ -56,7 +59,16 @@ class UsageTrackerService : Service() {
     private var lastPolledPackage: String? = null
 
     private fun tick() {
-        // 1. Process real UsageEvents first (most accurate)
+        // 1. Periodic Cloud Sync (every 5 minutes)
+        syncCounter++
+        if (syncCounter >= 300) {
+            syncCounter = 0
+            if (syncManager.isServerLocked()) {
+                syncManager.pushLogs { _, _ -> }
+            }
+        }
+
+        // 2. Process real UsageEvents first (most accurate)
         processUsageEvents()
         
         // 2. Polling as a fallback to catch app exits or missed events
@@ -255,7 +267,7 @@ class UsageTrackerService : Service() {
     }
 
     companion object {
-        const val ACTION_STOP_TRACKING = "ca.sekhrit.timetrackermoblie.action.STOP_TRACKING"
+        const val ACTION_STOP_TRACKING = "ca.tariq_sekhri.time_tracker.action.STOP_TRACKING"
         private const val CHANNEL_ID = "UsageTrackerChannel"
         private const val NOTIFICATION_ID = 1
     }

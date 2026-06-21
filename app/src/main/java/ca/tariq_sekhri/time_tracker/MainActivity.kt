@@ -1,4 +1,4 @@
-package ca.sekhrit.timetrackermoblie
+package ca.tariq_sekhri.time_tracker
 
 import android.Manifest
 import android.app.ActivityManager
@@ -270,11 +270,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 
                 val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                val appNameText = if (entry.appLabel != null && entry.appLabel != entry.packageName) {
-                    "${entry.appLabel} - ${entry.packageName}"
-                } else {
-                    entry.packageName
-                }
+                val appNameText = entry.appLabel ?: entry.packageName
                 val startTimeText = sdf.format(Date(entry.startTimestamp))
                 val durationText = formatDuration(entry.duration)
 

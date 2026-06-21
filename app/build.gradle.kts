@@ -3,15 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "ca.sekhrit.timetrackermoblie"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    namespace = "ca.tariq_sekhri.time_tracker"
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "ca.sekhrit.timetrackermoblie"
+        applicationId = "ca.tariq_sekhri.time_tracker"
         minSdk = 33
         targetSdk = 36
         versionCode = 1
