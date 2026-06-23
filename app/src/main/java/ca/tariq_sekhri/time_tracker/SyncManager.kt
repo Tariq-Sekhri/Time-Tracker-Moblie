@@ -62,9 +62,11 @@ class SyncManager(private val context: Context) {
         }
 
         val url = baseUrl(ip) + "/v1/upload_logs"
-        val payload = LogPayload(getDeviceMetadata(), logs.map { entry ->
+        val device = getDeviceMetadata()
+        val payload = LogPayload(device, logs.map { entry ->
             BackendLog(
                 id = entry.id,
+                device_uuid = device.uuid,
                 app = entry.appLabel ?: entry.packageName,
                 timestamp = entry.startTimestamp / 1000,
                 duration = entry.duration
@@ -151,6 +153,7 @@ class SyncManager(private val context: Context) {
     data class BackendDevice(val name: String, val uuid: String)
     data class BackendLog(
         val id: Long,
+        val device_uuid: String,
         val app: String,
         val timestamp: Long,
         val duration: Long
