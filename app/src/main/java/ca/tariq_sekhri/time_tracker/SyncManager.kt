@@ -104,6 +104,7 @@ class SyncManager(private val context: Context) {
                 prefs.edit()
                     .putString(PREF_DEVICE_UUID, result.uuid)
                     .putString(PREF_DEVICE_TOKEN, result.token)
+                    .putLong(PREF_LAST_PUSHED_LOG_ID, 0L)
                     .apply()
                 onComplete(true, "Registered")
             }
@@ -111,6 +112,19 @@ class SyncManager(private val context: Context) {
     }
 
     fun uploadAllLogs(onComplete: (Boolean, String) -> Unit) {
+        postAllLogs(reupload = false, onComplete)
+    }
+
+    fun reuploadAllLogs(onComplete: (Boolean, String) -> Unit) {
+        if (!isRegistered()) {
+            onComplete(false, "Not registered")
+            return
+        }
+        prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, 0L).apply()
+        postAllLogs(reupload = true, onComplete)
+    }
+
+    private fun postAllLogs(reupload: Boolean, onComplete: (Boolean, String) -> Unit) {
         val ip = getServerIp() ?: return onComplete(false, "No server configured")
         val token = getDeviceToken() ?: return onComplete(false, "Not registered")
         val deviceUuid = getDeviceUuid() ?: return onComplete(false, "Not registered")
@@ -137,7 +151,8 @@ class SyncManager(private val context: Context) {
                     val maxId = allLogs.maxOf { it.id }
                     prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, maxId).apply()
                     resetNextAutoPush()
-                    onComplete(true, "Uploaded ${allLogs.size} logs")
+                    val verb = if (reupload) "Re-uploaded" else "Uploaded"
+                    onComplete(true, "$verb ${allLogs.size} logs")
                 } else {
                     onComplete(false, "Upload error: ${response.code}")
                 }

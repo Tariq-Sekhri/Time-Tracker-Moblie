@@ -27,6 +27,7 @@ class SyncActivity : AppCompatActivity() {
     private lateinit var registerRow: LinearLayout
     private lateinit var btnRegister: Button
     private lateinit var tvRegisteredBadge: TextView
+    private lateinit var btnReupload: Button
     private lateinit var tvDeviceUuid: TextView
     private lateinit var btnPush: Button
     private lateinit var tvOperationStatus: TextView
@@ -159,6 +160,20 @@ class SyncActivity : AppCompatActivity() {
         }
         registerRow.addView(tvRegisteredBadge)
 
+        btnReupload = Button(this).apply {
+            text = "Re-upload all logs"
+            transformationMethod = null
+            setBackgroundColor(Color.parseColor("#B45309"))
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply {
+                marginStart = dp(8)
+            }
+            visibility = View.GONE
+            setOnClickListener { reuploadAllLogs() }
+        }
+        registerRow.addView(btnReupload)
+
         tvDeviceUuid = TextView(this).apply {
             setTextColor(Color.parseColor("#D1D5DB"))
             textSize = 13f
@@ -230,6 +245,8 @@ class SyncActivity : AppCompatActivity() {
 
         btnRegister.visibility = if (registered) View.GONE else View.VISIBLE
         tvRegisteredBadge.visibility = if (registered) View.VISIBLE else View.GONE
+        btnReupload.visibility = if (registered) View.VISIBLE else View.GONE
+        btnReupload.isEnabled = registered && !isSyncing
         btnPush.isEnabled = registered && !isSyncing
 
         val uuid = syncManager.getDeviceUuid()
@@ -324,7 +341,7 @@ class SyncActivity : AppCompatActivity() {
                 }
                 return@register
             }
-            syncManager.uploadAllLogs { uploadSuccess, uploadMessage ->
+            syncManager.reuploadAllLogs { uploadSuccess, uploadMessage ->
                 runOnUiThread {
                     btnRegister.isEnabled = true
                     updateUiState()
@@ -341,6 +358,31 @@ class SyncActivity : AppCompatActivity() {
         }
     }
 
+    private fun reuploadAllLogs() {
+        isSyncing = true
+        btnReupload.isEnabled = false
+        btnPush.isEnabled = false
+        tvOperationStatus.text = "Re-uploading..."
+        tvOperationStatus.setTextColor(Color.parseColor("#FBBF24"))
+        updateCountdown()
+
+        syncManager.reuploadAllLogs { success, message ->
+            runOnUiThread {
+                isSyncing = false
+                btnReupload.isEnabled = syncManager.isRegistered()
+                btnPush.isEnabled = syncManager.isRegistered()
+                tvOperationStatus.text = message
+                tvOperationStatus.setTextColor(
+                    if (success) Color.parseColor("#86EFAC") else Color.parseColor("#F87171")
+                )
+                if (success) {
+                    Toast.makeText(this@SyncActivity, message, Toast.LENGTH_SHORT).show()
+                }
+                updateCountdown()
+            }
+        }
+    }
+
     private fun pushNow() {
         isSyncing = true
         btnPush.isEnabled = false
@@ -352,6 +394,7 @@ class SyncActivity : AppCompatActivity() {
             runOnUiThread {
                 isSyncing = false
                 btnPush.isEnabled = syncManager.isRegistered()
+                btnReupload.isEnabled = syncManager.isRegistered()
                 tvOperationStatus.text = message
                 tvOperationStatus.setTextColor(
                     if (success) Color.parseColor("#86EFAC") else Color.parseColor("#F87171")
