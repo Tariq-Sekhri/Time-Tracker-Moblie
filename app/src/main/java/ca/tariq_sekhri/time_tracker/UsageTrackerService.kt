@@ -59,13 +59,12 @@ class UsageTrackerService : Service() {
 
     private fun tick() {
         // 1. Periodic Cloud Sync (every 5 minutes)
-        if (syncManager.isServerLocked()) {
+        if (syncManager.isConfigured()) {
             val secondsUntil = syncManager.secondsUntilNextAutoPush()
             if (secondsUntil == null) {
                 syncManager.resetNextAutoPush()
             } else if (secondsUntil == 0L) {
-                // pushLogs() now calls resetNextAutoPush() internally
-                syncManager.pushLogs { _, _ -> }
+                syncManager.sync { _, _ -> }
             }
         }
 

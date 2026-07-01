@@ -1,15 +1,13 @@
 package ca.tariq_sekhri.time_tracker
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
-import android.provider.Settings
 import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
-import java.util.*
 import kotlin.math.max
 
 class SyncManager(private val context: Context) {
@@ -18,151 +16,231 @@ class SyncManager(private val context: Context) {
     private val client = OkHttpClient()
     private val gson = Gson()
 
-    fun isServerLocked(): Boolean = prefs.getBoolean("server_locked", false)
-    fun getServerIp(): String? = prefs.getString("server_ip", null)
+    fun hasServerIp(): Boolean = !getServerIp().isNullOrBlank()
 
-    fun lockServer(ip: String) {
-        prefs.edit()
-            .putString("server_ip", ip)
-            .putBoolean("server_locked", true)
-            .apply()
-    }
+    fun getServerIp(): String? = prefs.getString(PREF_SERVER_IP, null)
+
+    fun getDeviceUuid(): String? = prefs.getString(PREF_DEVICE_UUID, null)
+
+    fun isRegistered(): Boolean =
+        !getDeviceToken().isNullOrBlank() && !getDeviceUuid().isNullOrBlank()
+
+    fun isConfigured(): Boolean = hasServerIp() && isRegistered()
 
     fun unlockServer() {
         prefs.edit()
-            .putBoolean("server_locked", false)
+            .remove(PREF_SERVER_IP)
+            .remove(PREF_DEVICE_UUID)
+            .remove(PREF_DEVICE_TOKEN)
+            .remove(PREF_LAST_PUSHED_LOG_ID)
             .remove(PREF_NEXT_AUTO_PUSH_AT_MS)
             .apply()
     }
 
+    fun saveServerIp(ip: String) {
+        prefs.edit().putString(PREF_SERVER_IP, normalizeServerIp(ip)).apply()
+    }
+
     fun resetNextAutoPush() {
-        if (!isServerLocked()) return
+        if (!isConfigured()) return
         prefs.edit()
             .putLong(PREF_NEXT_AUTO_PUSH_AT_MS, System.currentTimeMillis() + AUTO_PUSH_INTERVAL_SECONDS * 1000L)
             .apply()
     }
 
     fun secondsUntilNextAutoPush(): Long? {
-        if (!isServerLocked()) return null
+        if (!isConfigured()) return null
         val nextPushAt = prefs.getLong(PREF_NEXT_AUTO_PUSH_AT_MS, 0L)
         if (nextPushAt <= 0L) return null
         return max(0L, (nextPushAt - System.currentTimeMillis() + 999L) / 1000L)
     }
 
-    fun pushLogs(onComplete: (Boolean, String) -> Unit) {
-        val ip = getServerIp() ?: return onComplete(false, "No server IP")
-        resetNextAutoPush()
-
-        val lastId = prefs.getLong("last_pushed_log_id", 0L)
-        val logs = dbHelper.getLogsAfter(lastId)
-
-        if (logs.isEmpty()) {
-            finishWithDeletions(ip, onComplete)
+    fun checkServer(ip: String, onComplete: (Result<String>) -> Unit) {
+        val normalized = normalizeServerIp(ip)
+        if (normalized.isBlank()) {
+            onComplete(Result.failure(IOException("Enter a server IP")))
             return
         }
+        val url = baseUrl(normalized) + "/v1/check"
+        val request = Request.Builder().url(url).build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onComplete(Result.failure(e))
+            }
 
-        val url = baseUrl(ip) + "/v1/upload_logs"
-        val device = getDeviceMetadata()
-        val payload = LogPayload(device, logs.map { entry ->
-            BackendLog(
-                id = entry.id,
-                device_uuid = device.uuid,
-                app = entry.appLabel ?: entry.packageName,
-                timestamp = entry.startTimestamp / 1000,
-                duration = entry.duration
-            )
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string()?.trim()?.replace("\"", "")
+                response.close()
+                if (response.isSuccessful && body == EXPECTED_CHECK_RESPONSE) {
+                    saveServerIp(normalized)
+                    onComplete(Result.success(normalized))
+                } else {
+                    onComplete(Result.failure(IOException("Invalid response from server: $body")))
+                }
+            }
         })
+    }
 
+    fun register(onComplete: (Boolean, String) -> Unit) {
+        val ip = getServerIp() ?: return onComplete(false, "No server configured")
+        val url = baseUrl(ip) + "/v1/register"
+        val name = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val body = gson.toJson(RegisterPayload(name)).toRequestBody("application/json".toMediaType())
+        val request = Request.Builder().url(url).post(body).build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onComplete(false, "Register failed: ${e.message}")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (!response.isSuccessful) {
+                    response.close()
+                    onComplete(false, "Register error: ${response.code}")
+                    return
+                }
+                val responseBody = response.body?.string() ?: ""
+                response.close()
+                val result = gson.fromJson(responseBody, RegisterResponse::class.java)
+                prefs.edit()
+                    .putString(PREF_DEVICE_UUID, result.uuid)
+                    .putString(PREF_DEVICE_TOKEN, result.token)
+                    .apply()
+                onComplete(true, "Registered")
+            }
+        })
+    }
+
+    fun uploadAllLogs(onComplete: (Boolean, String) -> Unit) {
+        val ip = getServerIp() ?: return onComplete(false, "No server configured")
+        val token = getDeviceToken() ?: return onComplete(false, "Not registered")
+        val deviceUuid = getDeviceUuid() ?: return onComplete(false, "Not registered")
+
+        val allLogs = dbHelper.getAllLogs()
+        if (allLogs.isEmpty()) {
+            return onComplete(true, "No logs to upload")
+        }
+
+        val backendLogs = allLogs.map { mapLog(it, deviceUuid) }
+        val payload = UploadPayload(token, backendLogs)
+        val url = baseUrl(ip) + "/v1/upload_all_logs"
         val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
         val request = Request.Builder().url(url).post(body).build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                onComplete(false, "Push failed: ${e.message}")
+                onComplete(false, "Upload failed: ${e.message}")
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    val maxId = logs.maxOf { it.id }
-                    prefs.edit().putLong("last_pushed_log_id", maxId).apply()
-                    finishWithDeletions(ip) { deleteSuccess, deleteMsg ->
-                        onComplete(
-                            deleteSuccess,
-                            if (deleteSuccess) "Successfully pushed ${logs.size} logs" else "Pushed ${logs.size} logs, but $deleteMsg"
-                        )
-                    }
-                } else {
-                    onComplete(false, "Push server error: ${response.code}")
-                }
                 response.close()
+                if (response.isSuccessful) {
+                    val maxId = allLogs.maxOf { it.id }
+                    prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, maxId).apply()
+                    resetNextAutoPush()
+                    onComplete(true, "Uploaded ${allLogs.size} logs")
+                } else {
+                    onComplete(false, "Upload error: ${response.code}")
+                }
             }
         })
     }
 
-    private fun finishWithDeletions(ip: String, onComplete: (Boolean, String) -> Unit) {
-        syncDeletions(ip, onComplete)
-    }
+    fun sync(onComplete: (Boolean, String) -> Unit) {
+        if (!isConfigured()) return onComplete(false, "Not configured")
+        val ip = getServerIp()!!
+        val token = getDeviceToken()!!
+        val deviceUuid = getDeviceUuid()!!
 
-    private fun syncDeletions(ip: String, onFinished: (Boolean, String) -> Unit) {
+        val lastId = prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L)
+        val logs = dbHelper.getLogsAfter(lastId)
         val deletedIds = dbHelper.getDeletedLogIds()
-        if (deletedIds.isEmpty()) {
-            return onFinished(true, "Sync complete")
+
+        if (logs.isEmpty() && deletedIds.isEmpty()) {
+            return onComplete(true, "Nothing to sync")
         }
 
-        val url = "${baseUrl(ip)}/v1/devices/${getDeviceUuid()}/logs"
-        val body = gson.toJson(deletedIds).toRequestBody("application/json".toMediaType())
-        val request = Request.Builder().url(url).delete(body).build()
+        val backendLogs = logs.map { mapLog(it, deviceUuid) }
+        val payload = SyncPayload(token, backendLogs, deletedIds)
+        val url = baseUrl(ip) + "/v1/sync"
+        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+        val request = Request.Builder().url(url).post(body).build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                onFinished(false, "Delete sync failed: ${e.message}")
+                onComplete(false, "Sync failed: ${e.message}")
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    dbHelper.clearDeletedLogs(deletedIds)
-                    onFinished(true, "Deleted ${deletedIds.size} logs on server")
-                } else {
-                    onFinished(false, "Delete server error: ${response.code}")
-                }
                 response.close()
+                if (response.isSuccessful) {
+                    if (logs.isNotEmpty()) {
+                        prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, logs.maxOf { it.id }).apply()
+                    }
+                    if (deletedIds.isNotEmpty()) {
+                        dbHelper.clearDeletedLogs(deletedIds)
+                    }
+                    resetNextAutoPush()
+                    val parts = mutableListOf<String>()
+                    if (logs.isNotEmpty()) parts.add("pushed ${logs.size} logs")
+                    if (deletedIds.isNotEmpty()) parts.add("deleted ${deletedIds.size} on server")
+                    onComplete(true, parts.joinToString(", ").replaceFirstChar { it.uppercase() })
+                } else {
+                    onComplete(false, "Sync error: ${response.code}")
+                }
             }
         })
     }
 
-    private fun baseUrl(ip: String): String {
-        return if (ip.startsWith("http")) ip else "http://$ip:3000"
+    fun pushLogs(onComplete: (Boolean, String) -> Unit) = sync(onComplete)
+
+    private fun getDeviceToken(): String? = prefs.getString(PREF_DEVICE_TOKEN, null)
+
+    private fun mapLog(entry: LogEntry, deviceUuid: String) = BackendLog(
+        id = entry.id,
+        device_uuid = deviceUuid,
+        app = entry.appLabel ?: entry.packageName,
+        timestamp = entry.startTimestamp / 1000,
+        duration = entry.duration
+    )
+
+    private fun normalizeServerIp(serverIp: String): String {
+        var ip = serverIp.trim()
+        if (ip.startsWith("http://")) ip = ip.removePrefix("http://")
+        else if (ip.startsWith("https://")) ip = ip.removePrefix("https://")
+        ip.split("/").firstOrNull()?.let { if (it.isNotBlank()) ip = it }
+        ip.split(":").firstOrNull()?.let { if (it.isNotBlank()) ip = it }
+        return ip
     }
 
-    @SuppressLint("HardwareIds")
-    private fun getDeviceUuid(): String {
-        return Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            ?: prefs.getString(PREF_FALLBACK_DEVICE_UUID, null)
-            ?: UUID.randomUUID().toString().also { generated ->
-                prefs.edit().putString(PREF_FALLBACK_DEVICE_UUID, generated).apply()
-            }
-    }
+    private fun baseUrl(ip: String): String = "http://$ip:3000"
 
-    @SuppressLint("HardwareIds")
-    private fun getDeviceMetadata(): BackendDevice {
-        val uuid = getDeviceUuid()
-        val name = "${Build.MANUFACTURER} ${Build.MODEL}"
-        return BackendDevice(name = name, uuid = uuid)
-    }
+    data class RegisterPayload(val name: String)
 
-    data class BackendDevice(val name: String, val uuid: String)
+    data class RegisterResponse(val uuid: String, val token: String)
+
     data class BackendLog(
         val id: Long,
-        val device_uuid: String,
+        @SerializedName("device_uuid") val device_uuid: String,
         val app: String,
         val timestamp: Long,
         val duration: Long
     )
-    data class LogPayload(val device: BackendDevice, val logs: List<BackendLog>)
+
+    data class UploadPayload(val token: String, val logs: List<BackendLog>)
+
+    data class SyncPayload(
+        val token: String,
+        val logs: List<BackendLog>,
+        @SerializedName("deleted_log_ids") val deleted_log_ids: List<Long>
+    )
 
     companion object {
         const val AUTO_PUSH_INTERVAL_SECONDS = 300
+        const val EXPECTED_CHECK_RESPONSE = "Time Tracker Backend v1"
+        private const val PREF_SERVER_IP = "server_ip"
+        private const val PREF_DEVICE_UUID = "device_uuid"
+        private const val PREF_DEVICE_TOKEN = "device_token"
+        private const val PREF_LAST_PUSHED_LOG_ID = "last_pushed_log_id"
         private const val PREF_NEXT_AUTO_PUSH_AT_MS = "next_auto_push_at_ms"
-        private const val PREF_FALLBACK_DEVICE_UUID = "fallback_device_uuid"
     }
 }

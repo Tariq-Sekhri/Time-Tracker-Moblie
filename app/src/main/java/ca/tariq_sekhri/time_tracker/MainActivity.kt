@@ -21,7 +21,6 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
@@ -285,9 +284,8 @@ class MainActivity : AppCompatActivity() {
                     layoutParams = lp
                 }
                 
-                val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                 val appNameText = entry.appLabel ?: entry.packageName
-                val startTimeText = sdf.format(Date(entry.startTimestamp))
+                val startTimeText = formatDisplayTimestamp(entry.startTimestamp)
                 val durationText = formatDuration(entry.duration)
 
                 val tvAppName = TextView(context).apply {

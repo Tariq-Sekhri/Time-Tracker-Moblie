@@ -8,9 +8,6 @@ import android.widget.ListView
 import android.widget.TextView
 import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class LogsActivity : AppCompatActivity() {
     private val dbHelper by lazy { DatabaseHelper(this) }
@@ -68,10 +65,9 @@ class LogsActivity : AppCompatActivity() {
     }
 
     private fun formatLogEntry(entry: LogEntry): String {
-        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
         val name = entry.appLabel ?: entry.packageName
-        val start = sdf.format(Date(entry.startTimestamp))
-        val end = entry.endTimestamp?.let { sdf.format(Date(it)) } ?: "running"
+        val start = formatDisplayTimestamp(entry.startTimestamp)
+        val end = entry.endTimestamp?.let { formatDisplayTimestamp(it) } ?: "running"
         val duration = formatDuration(entry.duration)
         
         return "$name\n$start - $end   $duration"
