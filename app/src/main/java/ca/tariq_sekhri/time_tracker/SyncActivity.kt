@@ -27,6 +27,7 @@ class SyncActivity : AppCompatActivity() {
     private lateinit var registerRow: LinearLayout
     private lateinit var btnRegister: Button
     private lateinit var tvRegisteredBadge: TextView
+    private lateinit var btnCheckApproval: Button
     private lateinit var btnReupload: Button
     private lateinit var tvDeviceUuid: TextView
     private lateinit var btnPush: Button
@@ -34,6 +35,7 @@ class SyncActivity : AppCompatActivity() {
     private lateinit var btnChangeServer: Button
 
     private var isSyncing = false
+    private var isCheckingStatus = false
     private val countdownHandler = Handler(Looper.getMainLooper())
     private val countdownTicker = object : Runnable {
         override fun run() {
@@ -151,7 +153,7 @@ class SyncActivity : AppCompatActivity() {
         registerRow.addView(btnRegister)
 
         tvRegisteredBadge = TextView(this).apply {
-            text = "Registered"
+            text = "Waiting for approval"
             setTextColor(Color.parseColor("#86EFAC"))
             setBackgroundColor(Color.parseColor("#14532D"))
             textSize = 13f
@@ -159,6 +161,20 @@ class SyncActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         registerRow.addView(tvRegisteredBadge)
+
+        btnCheckApproval = Button(this).apply {
+            text = "Check approval"
+            transformationMethod = null
+            setBackgroundColor(Color.parseColor("#374151"))
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply {
+                marginStart = dp(8)
+            }
+            visibility = View.GONE
+            setOnClickListener { checkApproval(silent = false) }
+        }
+        registerRow.addView(btnCheckApproval)
 
         btnReupload = Button(this).apply {
             text = "Re-upload all logs"
@@ -222,6 +238,7 @@ class SyncActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateUiState()
+        if (syncManager.isRegistered()) checkApproval(silent = true)
         countdownHandler.removeCallbacks(countdownTicker)
         countdownHandler.post(countdownTicker)
     }
@@ -245,9 +262,19 @@ class SyncActivity : AppCompatActivity() {
 
         btnRegister.visibility = if (registered) View.GONE else View.VISIBLE
         tvRegisteredBadge.visibility = if (registered) View.VISIBLE else View.GONE
-        btnReupload.visibility = if (registered) View.VISIBLE else View.GONE
-        btnReupload.isEnabled = registered && !isSyncing
-        btnPush.isEnabled = registered && !isSyncing
+        btnCheckApproval.visibility = if (registered) View.VISIBLE else View.GONE
+        btnCheckApproval.isEnabled = registered && !isCheckingStatus
+        val active = syncManager.isActive()
+        tvRegisteredBadge.text = if (active) "Active" else "Waiting for approval"
+        tvRegisteredBadge.setTextColor(
+            Color.parseColor(if (active) "#86EFAC" else "#FDE68A")
+        )
+        tvRegisteredBadge.setBackgroundColor(
+            Color.parseColor(if (active) "#14532D" else "#78350F")
+        )
+        btnReupload.visibility = if (active) View.VISIBLE else View.GONE
+        btnReupload.isEnabled = active && !isSyncing
+        btnPush.isEnabled = active && !isSyncing
 
         val uuid = syncManager.getDeviceUuid()
         if (registered && uuid != null) {
@@ -270,7 +297,7 @@ class SyncActivity : AppCompatActivity() {
             tvCountdownValue.text = "Syncing…"
             return
         }
-        if (!syncManager.isRegistered()) {
+        if (!syncManager.isActive()) {
             tvCountdownValue.text = "—"
             return
         }
@@ -333,26 +360,36 @@ class SyncActivity : AppCompatActivity() {
         tvOperationStatus.setTextColor(Color.parseColor("#FBBF24"))
 
         syncManager.register { success, message ->
-            if (!success) {
-                runOnUiThread {
-                    btnRegister.isEnabled = true
-                    tvOperationStatus.text = message
-                    tvOperationStatus.setTextColor(Color.parseColor("#F87171"))
-                }
-                return@register
-            }
-            syncManager.reuploadAllLogs { uploadSuccess, uploadMessage ->
-                runOnUiThread {
-                    btnRegister.isEnabled = true
+            runOnUiThread {
+                btnRegister.isEnabled = true
+                tvOperationStatus.text = message
+                tvOperationStatus.setTextColor(
+                    Color.parseColor(if (success) "#FBBF24" else "#F87171")
+                )
+                if (success) {
                     updateUiState()
-                    if (uploadSuccess) {
-                        tvOperationStatus.text = uploadMessage
-                        tvOperationStatus.setTextColor(Color.parseColor("#86EFAC"))
-                        Toast.makeText(this@SyncActivity, uploadMessage, Toast.LENGTH_SHORT).show()
-                    } else {
-                        tvOperationStatus.text = "Registered, but $uploadMessage"
-                        tvOperationStatus.setTextColor(Color.parseColor("#FBBF24"))
-                    }
+                }
+            }
+        }
+    }
+
+    private fun checkApproval(silent: Boolean) {
+        if (isCheckingStatus || !syncManager.isRegistered()) return
+        isCheckingStatus = true
+        btnCheckApproval.isEnabled = false
+        if (!silent) {
+            tvOperationStatus.text = "Checking approval..."
+            tvOperationStatus.setTextColor(Color.parseColor("#FBBF24"))
+        }
+        syncManager.checkActivation { active, message ->
+            runOnUiThread {
+                isCheckingStatus = false
+                updateUiState()
+                if (!silent || active || !syncManager.isRegistered()) {
+                    tvOperationStatus.text = message
+                    tvOperationStatus.setTextColor(
+                        Color.parseColor(if (active) "#86EFAC" else "#FBBF24")
+                    )
                 }
             }
         }
@@ -369,8 +406,7 @@ class SyncActivity : AppCompatActivity() {
         syncManager.reuploadAllLogs { success, message ->
             runOnUiThread {
                 isSyncing = false
-                btnReupload.isEnabled = syncManager.isRegistered()
-                btnPush.isEnabled = syncManager.isRegistered()
+                updateUiState()
                 tvOperationStatus.text = message
                 tvOperationStatus.setTextColor(
                     if (success) Color.parseColor("#86EFAC") else Color.parseColor("#F87171")
@@ -393,8 +429,7 @@ class SyncActivity : AppCompatActivity() {
         syncManager.sync { success, message ->
             runOnUiThread {
                 isSyncing = false
-                btnPush.isEnabled = syncManager.isRegistered()
-                btnReupload.isEnabled = syncManager.isRegistered()
+                updateUiState()
                 tvOperationStatus.text = message
                 tvOperationStatus.setTextColor(
                     if (success) Color.parseColor("#86EFAC") else Color.parseColor("#F87171")

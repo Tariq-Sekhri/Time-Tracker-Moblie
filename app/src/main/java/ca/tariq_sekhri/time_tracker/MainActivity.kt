@@ -1,15 +1,9 @@
 package ca.tariq_sekhri.time_tracker
 
-import android.Manifest
-import android.app.ActivityManager
-import android.app.AppOpsManager
 import android.content.*
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
-import android.os.Build
 import android.os.Bundle
-import android.os.Process
 import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
@@ -61,14 +55,7 @@ class MainActivity : AppCompatActivity() {
         
         btnStart.setOnClickListener {
             if (hasUsageStatsPermission()) {
-                if (isServiceRunning()) {
-                    stopService()
-                } else if (hasNotificationPermission()) {
-                    startService()
-                } else {
-                    requestNotificationPermission()
-                }
-                updateTrackingButtonState()
+                importUsage(showResult = true)
             } else {
                 requestUsageStatsPermission()
             }
@@ -82,7 +69,7 @@ class MainActivity : AppCompatActivity() {
             transformationMethod = null
             setBackgroundColor(Color.parseColor("#374151"))
             setTextColor(Color.WHITE)
-            setOnClickListener { refreshLogs() }
+            setOnClickListener { importUsage(showResult = false) }
         }
 
         val btnSkippedApps = Button(this).apply {
@@ -185,11 +172,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(listView)
 
         setContentView(root)
-
-        if (hasUsageStatsPermission() && hasNotificationPermission() && !isServiceRunning()) {
-            startService()
-            updateTrackingButtonState()
-        }
+        UsageSyncScheduler.schedule(this)
     }
 
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
@@ -211,7 +194,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateTrackingButtonState()
-        refreshLogs()
+        if (hasUsageStatsPermission()) {
+            importUsage(showResult = false)
+        } else {
+            refreshLogs()
+        }
     }
 
     private fun refreshLogs() {
@@ -383,14 +370,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hasUsageStatsPermission(): Boolean {
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
-        } else {
-            @Suppress("DEPRECATION")
-            appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
-        }
-        return mode == AppOpsManager.MODE_ALLOWED
+        return UsageLogImporter.hasUsageAccess(this)
     }
 
     private fun requestUsageStatsPermission() {
@@ -398,57 +378,35 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
 
-    private fun hasNotificationPermission(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_POST_NOTIFICATIONS)
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_POST_NOTIFICATIONS && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            startService()
-            updateTrackingButtonState()
-        }
-    }
-
-    private fun startService() {
-        val intent = Intent(this, UsageTrackerService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-    }
-
-    private fun stopService() {
-        val intent = Intent(this, UsageTrackerService::class.java)
-        stopService(intent)
-    }
-
-    private fun isServiceRunning(): Boolean {
-        val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val className = UsageTrackerService::class.java.name
-        @Suppress("DEPRECATION")
-        return manager.getRunningServices(Integer.MAX_VALUE).any { it.service.className == className }
+    private fun importUsage(showResult: Boolean) {
+        btnStart.isEnabled = false
+        btnStart.text = "Importing..."
+        Thread {
+            val result = UsageLogImporter(applicationContext).importNow()
+            UsageSyncScheduler.runNow(applicationContext)
+            runOnUiThread {
+                updateTrackingButtonState()
+                refreshLogs()
+                if (showResult) {
+                    val message = if (result.available) {
+                        "Imported ${result.importedCount} Android usage log(s)"
+                    } else {
+                        "Usage Access is required"
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
     }
 
     private fun updateTrackingButtonState() {
-        if (isServiceRunning()) {
-            btnStart.text = "Stop Tracking"
-            btnStart.setBackgroundColor(Color.parseColor("#991B1B"))
-        } else {
-            btnStart.text = "Start Tracking"
+        btnStart.isEnabled = true
+        if (hasUsageStatsPermission()) {
+            btnStart.text = "Import Now"
             btnStart.setBackgroundColor(Color.parseColor("#065F46"))
+        } else {
+            btnStart.text = "Grant Usage Access"
+            btnStart.setBackgroundColor(Color.parseColor("#92400E"))
         }
-    }
-
-    companion object {
-        private const val REQUEST_POST_NOTIFICATIONS = 100
     }
 }

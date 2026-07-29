@@ -1,0 +1,62 @@
+[
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/xml_backup_rules.xml.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/drawable_ic_copy.xml.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/drawable/ic_copy.xml"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-xxhdpi_ic_launcher_round.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-xxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-hdpi_ic_launcher_round.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-hdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-xxxhdpi_ic_launcher_round.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-xxxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/drawable_ic_launcher_background.xml.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/drawable/ic_launcher_background.xml"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/xml_data_extraction_rules.xml.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/xml/data_extraction_rules.xml"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-xhdpi_ic_launcher_round.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-xhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "ca.tariq_sekhri.time_tracker.app-debug-37:/mipmap-mdpi_ic_launcher_round.png.flat",
+        "source": "ca.tariq_sekhri.time_tracker.app-main-39:/mipmap-mdpi/ic_launcher_round.png"
+    }
+]

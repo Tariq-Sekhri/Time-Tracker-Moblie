@@ -77,6 +77,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.okhttp)
     implementation(libs.gson)
+    implementation(libs.work.runtime)
     testImplementation(libs.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)

@@ -1,0 +1,4 @@
+#Wed Jul 01 02:17:47 EDT 2026
+base.0=C\:\\Users\\hulks\\OneDrive\\coding\\apps\\Time Tracker Moblie\\app\\build\\intermediates\\dex\\release\\mergeDexRelease\\classes.dex
+path.0=classes.dex
+renamed.0=classes.dex

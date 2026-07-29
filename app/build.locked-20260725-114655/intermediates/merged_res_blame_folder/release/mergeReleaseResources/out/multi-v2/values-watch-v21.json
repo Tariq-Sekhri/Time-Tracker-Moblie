@@ -1,0 +1,20 @@
+{
+    "logs": [
+        {
+            "outputFile": "ca.tariq_sekhri.time_tracker.app-mergeReleaseResources-28:/values-watch-v21/values-watch-v21.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\hulks\\.gradle\\caches\\9.4.1\\transforms\\219f31f0e228fe5129090ec302819b23\\transformed\\appcompat-1.6.1\\res\\values-watch-v21\\values-watch-v21.xml",
+                    "from": {
+                        "startLines": "2,6,10",
+                        "startColumns": "4,4,4",
+                        "startOffsets": "55,271,499",
+                        "endLines": "5,9,13",
+                        "endColumns": "12,12,12",
+                        "endOffsets": "266,494,724"
+                    }
+                }
+            ]
+        }
+    ]
+}

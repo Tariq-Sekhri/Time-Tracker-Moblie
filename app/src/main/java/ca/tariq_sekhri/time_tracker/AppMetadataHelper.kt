@@ -25,8 +25,16 @@ class AppMetadataHelper(private val context: Context) {
         )
     }
 
-    fun fromPackage(packageName: String): RichLogMetadata {
-        return buildMetadata(packageName = packageName, eventType = "POLL_DETECTED")
+    fun fromPackage(
+        packageName: String,
+        activityClass: String? = null,
+        eventType: String = "ANDROID_USAGE_HISTORY"
+    ): RichLogMetadata {
+        return buildMetadata(
+            packageName = packageName,
+            activityClass = activityClass,
+            eventType = eventType
+        )
     }
 
     fun synthetic(packageName: String, appLabel: String, eventType: String): RichLogMetadata {

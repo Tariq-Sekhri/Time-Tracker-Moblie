@@ -27,11 +27,14 @@ class SyncManager(private val context: Context) {
 
     fun isConfigured(): Boolean = hasServerIp() && isRegistered()
 
+    fun isActive(): Boolean = isRegistered() && prefs.getBoolean(PREF_DEVICE_ACTIVE, false)
+
     fun unlockServer() {
         prefs.edit()
             .remove(PREF_SERVER_IP)
             .remove(PREF_DEVICE_UUID)
             .remove(PREF_DEVICE_TOKEN)
+            .remove(PREF_DEVICE_ACTIVE)
             .remove(PREF_LAST_PUSHED_LOG_ID)
             .remove(PREF_NEXT_AUTO_PUSH_AT_MS)
             .apply()
@@ -104,15 +107,56 @@ class SyncManager(private val context: Context) {
                 prefs.edit()
                     .putString(PREF_DEVICE_UUID, result.uuid)
                     .putString(PREF_DEVICE_TOKEN, result.token)
+                    .putBoolean(PREF_DEVICE_ACTIVE, result.is_active)
                     .putLong(PREF_LAST_PUSHED_LOG_ID, 0L)
                     .apply()
-                onComplete(true, "Registered")
+                onComplete(
+                    true,
+                    if (result.is_active) "Registered and active" else "Registered; waiting for admin approval"
+                )
+            }
+        })
+    }
+
+    fun checkActivation(onComplete: (Boolean, String) -> Unit) {
+        val ip = getServerIp() ?: return onComplete(false, "No server configured")
+        val token = getDeviceToken() ?: return onComplete(false, "Not registered")
+        val request = statusRequest(ip, token)
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onComplete(false, "Status check failed: ${e.message}")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    when {
+                        response.isSuccessful -> {
+                            val status = parseAndSaveStatus(response)
+                            if (status == null) {
+                                onComplete(false, "Invalid status response")
+                            } else {
+                                onComplete(
+                                    status.is_active,
+                                    if (status.is_active) "Device is active" else "Waiting for admin approval"
+                                )
+                            }
+                        }
+                        response.code == 401 -> {
+                            clearRegistration()
+                            onComplete(false, "Device registration was removed. Register again.")
+                        }
+                        else -> onComplete(false, "Status check error: ${response.code}")
+                    }
+                }
             }
         })
     }
 
     fun uploadAllLogs(onComplete: (Boolean, String) -> Unit) {
-        postAllLogs(reupload = false, onComplete)
+        Thread {
+            UsageLogImporter(context).importNow()
+            postAllLogs(reupload = false, onComplete)
+        }.start()
     }
 
     fun reuploadAllLogs(onComplete: (Boolean, String) -> Unit) {
@@ -121,7 +165,10 @@ class SyncManager(private val context: Context) {
             return
         }
         prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, 0L).apply()
-        postAllLogs(reupload = true, onComplete)
+        Thread {
+            UsageLogImporter(context).importNow()
+            postAllLogs(reupload = true, onComplete)
+        }.start()
     }
 
     private fun postAllLogs(reupload: Boolean, onComplete: (Boolean, String) -> Unit) {
@@ -146,21 +193,30 @@ class SyncManager(private val context: Context) {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                response.close()
-                if (response.isSuccessful) {
-                    val maxId = allLogs.maxOf { it.id }
-                    prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, maxId).apply()
-                    resetNextAutoPush()
-                    val verb = if (reupload) "Re-uploaded" else "Uploaded"
-                    onComplete(true, "$verb ${allLogs.size} logs")
-                } else {
-                    onComplete(false, "Upload error: ${response.code}")
+                response.use {
+                    if (response.isSuccessful) {
+                        setActive(true)
+                        val maxId = allLogs.maxOf { it.id }
+                        advanceLastPushedLogId(maxId)
+                        resetNextAutoPush()
+                        val verb = if (reupload) "Re-uploaded" else "Uploaded"
+                        onComplete(true, "$verb ${allLogs.size} logs")
+                    } else {
+                        onComplete(false, syncErrorMessage(response.code, "Upload"))
+                    }
                 }
             }
         })
     }
 
     fun sync(onComplete: (Boolean, String) -> Unit) {
+        Thread {
+            UsageLogImporter(context).importNow()
+            syncImported(onComplete)
+        }.start()
+    }
+
+    private fun syncImported(onComplete: (Boolean, String) -> Unit) {
         if (!isConfigured()) return onComplete(false, "Not configured")
         val ip = getServerIp()!!
         val token = getDeviceToken()!!
@@ -186,27 +242,170 @@ class SyncManager(private val context: Context) {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                response.close()
-                if (response.isSuccessful) {
-                    if (logs.isNotEmpty()) {
-                        prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, logs.maxOf { it.id }).apply()
+                response.use {
+                    if (response.isSuccessful) {
+                        setActive(true)
+                        if (logs.isNotEmpty()) {
+                            advanceLastPushedLogId(logs.maxOf { it.id })
+                        }
+                        if (deletedIds.isNotEmpty()) {
+                            dbHelper.clearDeletedLogs(deletedIds)
+                        }
+                        resetNextAutoPush()
+                        val parts = mutableListOf<String>()
+                        if (logs.isNotEmpty()) parts.add("pushed ${logs.size} logs")
+                        if (deletedIds.isNotEmpty()) parts.add("deleted ${deletedIds.size} on server")
+                        onComplete(true, parts.joinToString(", ").replaceFirstChar { it.uppercase() })
+                    } else {
+                        onComplete(false, syncErrorMessage(response.code, "Sync"))
                     }
-                    if (deletedIds.isNotEmpty()) {
-                        dbHelper.clearDeletedLogs(deletedIds)
-                    }
-                    resetNextAutoPush()
-                    val parts = mutableListOf<String>()
-                    if (logs.isNotEmpty()) parts.add("pushed ${logs.size} logs")
-                    if (deletedIds.isNotEmpty()) parts.add("deleted ${deletedIds.size} on server")
-                    onComplete(true, parts.joinToString(", ").replaceFirstChar { it.uppercase() })
-                } else {
-                    onComplete(false, "Sync error: ${response.code}")
                 }
             }
         })
     }
 
     fun pushLogs(onComplete: (Boolean, String) -> Unit) = sync(onComplete)
+
+    data class BlockingSyncResult(
+        val successful: Boolean,
+        val message: String,
+        val shouldRetry: Boolean = false
+    )
+
+    fun syncBlocking(): BlockingSyncResult {
+        if (!isConfigured()) return BlockingSyncResult(false, "Not configured")
+        val ip = getServerIp()!!
+        val token = getDeviceToken()!!
+        val statusResult = checkActivationBlocking(ip, token)
+        if (!statusResult.successful || !isActive()) return statusResult
+        val deviceUuid = getDeviceUuid()
+            ?: return BlockingSyncResult(false, "Registration is incomplete")
+        val lastId = prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L)
+        val logs = dbHelper.getLogsAfter(lastId)
+        val deletedIds = dbHelper.getDeletedLogIds()
+        if (logs.isEmpty() && deletedIds.isEmpty()) {
+            return BlockingSyncResult(true, "Nothing to sync")
+        }
+
+        val payload = SyncPayload(
+            token,
+            logs.map { mapLog(it, deviceUuid) },
+            deletedIds
+        )
+        val request = Request.Builder()
+            .url(baseUrl(ip) + "/v1/sync")
+            .post(gson.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    setActive(true)
+                    if (logs.isNotEmpty()) {
+                        advanceLastPushedLogId(logs.maxOf { it.id })
+                    }
+                    if (deletedIds.isNotEmpty()) dbHelper.clearDeletedLogs(deletedIds)
+                    resetNextAutoPush()
+                    BlockingSyncResult(true, "Synced")
+                } else {
+                    val message = syncErrorMessage(response.code, "Sync")
+                    BlockingSyncResult(
+                        false,
+                        message,
+                        response.code >= 500 || response.code == 408 || response.code == 429
+                    )
+                }
+            }
+        } catch (e: IOException) {
+            BlockingSyncResult(false, "Sync failed: ${e.message}", true)
+        }
+    }
+
+    private fun checkActivationBlocking(ip: String, token: String): BlockingSyncResult {
+        return try {
+            client.newCall(statusRequest(ip, token)).execute().use { response ->
+                when {
+                    response.isSuccessful -> {
+                        val status = parseAndSaveStatus(response)
+                            ?: return BlockingSyncResult(false, "Invalid status response", true)
+                        if (status.is_active) {
+                            BlockingSyncResult(true, "Device is active")
+                        } else {
+                            BlockingSyncResult(false, "Waiting for admin approval")
+                        }
+                    }
+                    response.code == 401 -> {
+                        clearRegistration()
+                        BlockingSyncResult(false, "Device registration was removed. Register again.")
+                    }
+                    else -> BlockingSyncResult(
+                        false,
+                        "Status check error: ${response.code}",
+                        response.code >= 500 || response.code == 408 || response.code == 429
+                    )
+                }
+            }
+        } catch (e: IOException) {
+            BlockingSyncResult(false, "Status check failed: ${e.message}", true)
+        }
+    }
+
+    private fun statusRequest(ip: String, token: String): Request {
+        val body = gson.toJson(StatusPayload(token))
+            .toRequestBody("application/json".toMediaType())
+        return Request.Builder()
+            .url(baseUrl(ip) + "/v1/status")
+            .post(body)
+            .build()
+    }
+
+    private fun parseAndSaveStatus(response: Response): StatusResponse? {
+        val responseBody = response.body?.string() ?: return null
+        val status = runCatching {
+            gson.fromJson(responseBody, StatusResponse::class.java)
+        }.getOrNull() ?: return null
+        if (status.uuid.isBlank()) return null
+        prefs.edit()
+            .putString(PREF_DEVICE_UUID, status.uuid)
+            .putBoolean(PREF_DEVICE_ACTIVE, status.is_active)
+            .apply()
+        return status
+    }
+
+    private fun syncErrorMessage(code: Int, operation: String): String {
+        return when (code) {
+            401 -> {
+                clearRegistration()
+                "Device registration was removed. Register again."
+            }
+            403 -> {
+                setActive(false)
+                "Waiting for admin approval"
+            }
+            else -> "$operation error: $code"
+        }
+    }
+
+    private fun clearRegistration() {
+        prefs.edit()
+            .remove(PREF_DEVICE_UUID)
+            .remove(PREF_DEVICE_TOKEN)
+            .remove(PREF_DEVICE_ACTIVE)
+            .remove(PREF_LAST_PUSHED_LOG_ID)
+            .remove(PREF_NEXT_AUTO_PUSH_AT_MS)
+            .apply()
+    }
+
+    private fun setActive(active: Boolean) {
+        prefs.edit().putBoolean(PREF_DEVICE_ACTIVE, active).apply()
+    }
+
+    private fun advanceLastPushedLogId(uploadedId: Long) {
+        val current = prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L)
+        if (uploadedId > current) {
+            prefs.edit().putLong(PREF_LAST_PUSHED_LOG_ID, uploadedId).apply()
+        }
+    }
 
     private fun getDeviceToken(): String? = prefs.getString(PREF_DEVICE_TOKEN, null)
 
@@ -231,7 +430,19 @@ class SyncManager(private val context: Context) {
 
     data class RegisterPayload(val name: String)
 
-    data class RegisterResponse(val uuid: String, val token: String)
+    data class RegisterResponse(
+        val uuid: String,
+        val token: String,
+        val is_active: Boolean
+    )
+
+    data class StatusPayload(val token: String)
+
+    data class StatusResponse(
+        val uuid: String,
+        val name: String,
+        val is_active: Boolean
+    )
 
     data class BackendLog(
         val id: Long,
@@ -255,6 +466,7 @@ class SyncManager(private val context: Context) {
         private const val PREF_SERVER_IP = "server_ip"
         private const val PREF_DEVICE_UUID = "device_uuid"
         private const val PREF_DEVICE_TOKEN = "device_token"
+        private const val PREF_DEVICE_ACTIVE = "device_active"
         private const val PREF_LAST_PUSHED_LOG_ID = "last_pushed_log_id"
         private const val PREF_NEXT_AUTO_PUSH_AT_MS = "next_auto_push_at_ms"
     }

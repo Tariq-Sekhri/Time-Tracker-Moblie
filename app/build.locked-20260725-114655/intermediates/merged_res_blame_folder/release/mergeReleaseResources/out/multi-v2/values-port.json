@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "ca.tariq_sekhri.time_tracker.app-mergeReleaseResources-28:/values-port/values-port.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\hulks\\.gradle\\caches\\9.4.1\\transforms\\219f31f0e228fe5129090ec302819b23\\transformed\\appcompat-1.6.1\\res\\values-port\\values-port.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "55",
+                        "endOffsets": "106"
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -200,6 +200,76 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         return writableDatabase.insert(TABLE_LOGS, null, values)
     }
 
+    fun insertImportedSession(
+        metadata: RichLogMetadata,
+        startTimestampMs: Long,
+        endTimestampMs: Long,
+        endEventType: String,
+        category: String? = null
+    ): Long {
+        val durationSeconds = (endTimestampMs - startTimestampMs) / 1_000L
+        if (durationSeconds <= 0L) return -1L
+
+        val existing = readableDatabase.query(
+            TABLE_LOGS,
+            arrayOf(COLUMN_ID),
+            "$COLUMN_PACKAGE_NAME=? AND $COLUMN_START_TIMESTAMP=?",
+            arrayOf(metadata.packageName, startTimestampMs.toString()),
+            null,
+            null,
+            null,
+            "1"
+        )
+        val existingId = if (existing.moveToFirst()) existing.getLong(0) else null
+        existing.close()
+
+        val values = ContentValues().apply {
+            put(COLUMN_PACKAGE_NAME, metadata.packageName)
+            put(COLUMN_APP_LABEL, metadata.appLabel)
+            put(COLUMN_ACTIVITY_CLASS, metadata.activityClass)
+            put(COLUMN_START_TIMESTAMP, startTimestampMs)
+            put(COLUMN_END_TIMESTAMP, endTimestampMs)
+            put(COLUMN_DURATION, durationSeconds)
+            put(COLUMN_CATEGORY, category)
+            put(COLUMN_LAST_TIME_USED, metadata.lastTimeUsed)
+            put(COLUMN_TOTAL_TIME_IN_FOREGROUND_MS, metadata.totalTimeInForegroundMs)
+            put(COLUMN_LAST_TIME_VISIBLE, metadata.lastTimeVisible)
+            put(COLUMN_TOTAL_TIME_VISIBLE_MS, metadata.totalTimeVisibleMs)
+            put(COLUMN_LAST_TIME_FGS_USED, metadata.lastTimeForegroundServiceUsed)
+            put(COLUMN_TOTAL_TIME_FGS_USED_MS, metadata.totalTimeForegroundServiceUsedMs)
+            put(COLUMN_IS_SYSTEM_APP, metadata.isSystemApp?.let { if (it) 1 else 0 })
+            put(COLUMN_VERSION_NAME, metadata.versionName)
+            put(COLUMN_VERSION_CODE, metadata.versionCode)
+            put(COLUMN_INSTALL_TIME, metadata.installTime)
+            put(COLUMN_UPDATE_TIME, metadata.updateTime)
+            put(COLUMN_START_EVENT_TYPE, metadata.startEventType)
+            put(COLUMN_END_EVENT_TYPE, endEventType)
+        }
+
+        return if (existingId == null) {
+            writableDatabase.insert(TABLE_LOGS, null, values)
+        } else {
+            writableDatabase.update(
+                TABLE_LOGS,
+                values,
+                "$COLUMN_ID=?",
+                arrayOf(existingId.toString())
+            )
+            existingId
+        }
+    }
+
+    fun latestLogBoundaryMs(): Long? {
+        val cursor = readableDatabase.rawQuery(
+            "SELECT MAX(COALESCE($COLUMN_END_TIMESTAMP, " +
+                "$COLUMN_START_TIMESTAMP + ($COLUMN_DURATION * 1000))) FROM $TABLE_LOGS",
+            null
+        )
+        val value = if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+        cursor.close()
+        return value
+    }
+
     fun endLog(id: Long, endTimestampMs: Long, endEventType: String) {
         // Retrieve start timestamp to calculate total duration as a fallback
         val cursor = readableDatabase.query(TABLE_LOGS, arrayOf(COLUMN_START_TIMESTAMP, COLUMN_DURATION), "$COLUMN_ID=?", arrayOf(id.toString()), null, null, null)
