@@ -426,7 +426,7 @@ class SyncManager(private val context: Context) {
         return ip
     }
 
-    private fun baseUrl(ip: String): String = "http://$ip:3000"
+    private fun baseUrl(ip: String): String = "http://$ip:8765"
 
     data class RegisterPayload(val name: String)
 
