@@ -361,9 +361,10 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.delete(TABLE_LOGS, "$COLUMN_ID=?", arrayOf(id.toString()))
-            val values = ContentValues().apply { put(COLUMN_ID, id) }
-            db.insertWithOnConflict(TABLE_DELETED_LOGS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            val deletedRows = db.delete(TABLE_LOGS, "$COLUMN_ID=?", arrayOf(id.toString()))
+            if (deletedRows > 0) {
+                recordDeletedLogId(db, id)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -398,7 +399,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     fun addSkippedApp(pattern: String): Long {
         val db = writableDatabase
-        
+
         // 1. Delete existing logs that match the new pattern
         val logs = getAllLogs()
         val idsToDelete = logs.filter { entry ->
@@ -409,23 +410,26 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             )
         }.map { it.id }
 
-        if (idsToDelete.isNotEmpty()) {
-            db.beginTransaction()
-            try {
-                idsToDelete.forEach { id ->
-                    db.delete(TABLE_LOGS, "$COLUMN_ID=?", arrayOf(id.toString()))
-                    val values = ContentValues().apply { put(COLUMN_ID, id) }
-                    db.insertWithOnConflict(TABLE_DELETED_LOGS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+        db.beginTransaction()
+        return try {
+            idsToDelete.forEach { id ->
+                if (db.delete(TABLE_LOGS, "$COLUMN_ID=?", arrayOf(id.toString())) > 0) {
+                    recordDeletedLogId(db, id)
                 }
-                db.setTransactionSuccessful()
-            } finally {
-                db.endTransaction()
             }
-        }
 
-        // 2. Add to skipped_apps table
-        val values = ContentValues().apply { put(COLUMN_PATTERN, pattern) }
-        return db.insertWithOnConflict(TABLE_SKIPPED_APPS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            // Persist the skip rule in the same transaction as its matching-log deletions.
+            val values = ContentValues().apply { put(COLUMN_PATTERN, pattern) }
+            db.insertWithOnConflict(TABLE_SKIPPED_APPS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+                .also { db.setTransactionSuccessful() }
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun recordDeletedLogId(db: SQLiteDatabase, id: Long) {
+        val values = ContentValues().apply { put(COLUMN_ID, id) }
+        db.insertWithOnConflict(TABLE_DELETED_LOGS, null, values, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
     fun deleteSkippedApp(id: Long) {
