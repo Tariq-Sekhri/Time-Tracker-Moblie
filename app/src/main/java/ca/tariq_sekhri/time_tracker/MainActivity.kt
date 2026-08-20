@@ -228,7 +228,6 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateTrackingButtonState()
-        checkAndPromptMissingPermissions()
         if (hasUsageStatsPermission()) {
             importUsage(showResult = false)
         } else {
@@ -236,46 +235,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkAndPromptMissingPermissions() {
-        if (hasPromptedPermissions) return
-
-        if (!hasUsageStatsPermission()) {
-            hasPromptedPermissions = true
-            AlertDialog.Builder(this)
-                .setTitle("Usage Access Required")
-                .setMessage("Time Tracker needs Usage Access to track foreground app usage. Would you like to enable it now?")
-                .setPositiveButton("Enable") { _, _ -> requestUsageStatsPermission() }
-                .setNegativeButton("Later", null)
-                .show()
-        } else if (!isAccessibilityServiceEnabled()) {
-            hasPromptedPermissions = true
-            AlertDialog.Builder(this)
-                .setTitle("Browser Tracking")
-                .setMessage("Enable Time Tracker in Accessibility Settings to record browser page titles (e.g. Wikipedia - Vivaldi).")
-                .setPositiveButton("Enable") { _, _ -> requestAccessibilityPermission() }
-                .setNegativeButton("Later", null)
-                .show()
-        } else if (!isNotificationListenerEnabled()) {
-            hasPromptedPermissions = true
-            AlertDialog.Builder(this)
-                .setTitle("Media Tracking")
-                .setMessage("Enable Notification Access for Time Tracker to record active song/media playback (e.g. Spotify, YouTube Music).")
-                .setPositiveButton("Enable") { _, _ -> requestNotificationPermission() }
-                .setNegativeButton("Later", null)
-                .show()
-        }
-    }
-
     private fun isAccessibilityServiceEnabled(): Boolean {
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabledServices.contains(packageName)
+        val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as? android.view.accessibility.AccessibilityManager
+        val enabledServices = am?.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+        if (enabledServices?.any { it.resolveInfo.serviceInfo.packageName == packageName } == true) {
+            return true
+        }
+        val flat = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+        return flat.contains(packageName)
     }
 
     private fun isNotificationListenerEnabled(): Boolean {
-        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: return false
+        val enabled = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(this)
+        if (enabled.contains(packageName)) return true
+        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
         return flat.contains(packageName)
     }
 

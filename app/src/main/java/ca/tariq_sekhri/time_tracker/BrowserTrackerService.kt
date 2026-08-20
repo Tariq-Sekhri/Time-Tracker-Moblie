@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import java.net.URI
 import java.util.ArrayDeque
 
 class BrowserTrackerService : AccessibilityService() {
@@ -32,14 +31,16 @@ class BrowserTrackerService : AccessibilityService() {
         val rootNode = rootInActiveWindow ?: event.source ?: return
         val rawTitleOrUrl = extractTitleOrUrl(rootNode, packageName)
 
-        if (!rawTitleOrUrl.isNullOrBlank()) {
+        if (!rawTitleOrUrl.isNullOrBlank() && !isSearchPlaceholder(rawTitleOrUrl)) {
             val cleanTitle = cleanTitleOrUrl(rawTitleOrUrl)
-            handleTitleChange(packageName, cleanTitle)
+            if (cleanTitle.isNotBlank() && !isSearchPlaceholder(cleanTitle)) {
+                handleTitleChange(packageName, cleanTitle)
+            }
         }
     }
 
     private fun extractTitleOrUrl(root: AccessibilityNodeInfo, packageName: String): String? {
-        // 1. Direct search using known resource IDs
+        // 1. Check known URL / address bar resource IDs
         val knownIds = listOf(
             "com.android.chrome:id/url_bar",
             "org.chromium.chrome:id/url_bar",
@@ -60,6 +61,10 @@ class BrowserTrackerService : AccessibilityService() {
             val nodes = root.findAccessibilityNodeInfosByViewId(id)
             if (!nodes.isNullOrEmpty()) {
                 for (node in nodes) {
+                    // If the address bar is actively focused / being typed into, ignore it!
+                    if (node.isFocused) {
+                        return null
+                    }
                     val text = node.text?.toString()?.takeIf { it.isNotBlank() }
                         ?: node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
                     if (!text.isNullOrBlank()) return text
@@ -80,12 +85,17 @@ class BrowserTrackerService : AccessibilityService() {
             val text = node.text?.toString()?.trim()
             val desc = node.contentDescription?.toString()?.trim()
 
-            // Look for URL / omnibox inputs
+            // If an editable search/URL node is focused, user is typing -> ignore
+            if (node.isFocused && (node.isEditable || resId.contains("url") || resId.contains("search") || resId.contains("omnibox"))) {
+                return null
+            }
+
+            // Look for URL / omnibox inputs when NOT focused
             if (resId.contains("url") || resId.contains("address") || resId.contains("location") ||
                 resId.contains("omnibox") || resId.contains("toolbar") || resId.contains("search_box")
             ) {
                 val candidate = text?.takeIf { it.isNotBlank() } ?: desc?.takeIf { it.isNotBlank() }
-                if (!candidate.isNullOrBlank() && !candidate.equals("Search", ignoreCase = true)) {
+                if (!candidate.isNullOrBlank() && !isSearchPlaceholder(candidate)) {
                     return candidate
                 }
             }
@@ -94,12 +104,14 @@ class BrowserTrackerService : AccessibilityService() {
             if (!text.isNullOrBlank() && (text.contains("http://") || text.contains("https://") ||
                         text.contains("wikipedia.org") || text.contains(".com") || text.contains(".org") || text.contains(".io"))
             ) {
-                return text
+                if (!isSearchPlaceholder(text)) {
+                    return text
+                }
             }
 
             // Also check WebView content description for title
             if (node.className?.toString()?.contains("WebView") == true) {
-                if (!desc.isNullOrBlank()) return desc
+                if (!desc.isNullOrBlank() && !isSearchPlaceholder(desc)) return desc
             }
 
             for (i in 0 until node.childCount) {
@@ -108,6 +120,19 @@ class BrowserTrackerService : AccessibilityService() {
         }
 
         return null
+    }
+
+    private fun isSearchPlaceholder(raw: String): Boolean {
+        val text = raw.lowercase().trim()
+        return text.startsWith("search") ||
+                text.startsWith("type url") ||
+                text.startsWith("type web address") ||
+                text.contains("search or type") ||
+                text.contains("search google") ||
+                text == "new tab" ||
+                text == "about:blank" ||
+                text.startsWith("chrome://") ||
+                text.length < 2
     }
 
     private fun cleanTitleOrUrl(raw: String): String {
@@ -201,7 +226,19 @@ class BrowserTrackerService : AccessibilityService() {
     private fun closeActiveSession(reason: String) {
         val id = currentSessionId ?: return
         val now = System.currentTimeMillis()
-        dbHelper.endLog(id, now, reason)
+        val durationSec = (now - sessionStartMs) / 1000L
+
+        if (durationSec < 1L) {
+            // Delete transient / flash 0-second logs to avoid spam
+            dbHelper.writableDatabase.delete(
+                DatabaseHelper.TABLE_LOGS,
+                "${DatabaseHelper.COLUMN_ID}=?",
+                arrayOf(id.toString())
+            )
+        } else {
+            dbHelper.endLog(id, now, reason)
+        }
+
         currentSessionId = null
         currentFormattedLabel = null
         currentPackage = null
