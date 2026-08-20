@@ -19,10 +19,13 @@ import java.util.*
 
 class MainActivity : AppCompatActivity() {
     private lateinit var btnStart: Button
+    private lateinit var btnAccessibility: Button
+    private lateinit var btnNotification: Button
     private lateinit var listView: ListView
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var prefs: SharedPreferences
     private lateinit var editMinDuration: EditText
+    private var hasPromptedPermissions = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,7 +54,6 @@ class MainActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
         }
-        updateTrackingButtonState()
         
         btnStart.setOnClickListener {
             if (hasUsageStatsPermission()) {
@@ -101,6 +103,38 @@ class MainActivity : AppCompatActivity() {
         header.addView(btnSkippedApps)
         header.addView(btnSync)
         root.addView(header)
+
+        // Services Action Bar
+        val servicesBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), dp(8), dp(4), dp(0))
+        }
+
+        btnAccessibility = Button(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply {
+                setMargins(0, 0, dp(8), 0)
+            }
+            textSize = 12f
+            transformationMethod = null
+            setOnClickListener {
+                requestAccessibilityPermission()
+            }
+        }
+
+        btnNotification = Button(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f)
+            textSize = 12f
+            transformationMethod = null
+            setOnClickListener {
+                requestNotificationPermission()
+            }
+        }
+
+        servicesBar.addView(btnAccessibility)
+        servicesBar.addView(btnNotification)
+        root.addView(servicesBar)
+        updateTrackingButtonState()
 
         // Filter Bar
         val filterBar = LinearLayout(this).apply {
@@ -194,11 +228,65 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateTrackingButtonState()
+        checkAndPromptMissingPermissions()
         if (hasUsageStatsPermission()) {
             importUsage(showResult = false)
         } else {
             refreshLogs()
         }
+    }
+
+    private fun checkAndPromptMissingPermissions() {
+        if (hasPromptedPermissions) return
+
+        if (!hasUsageStatsPermission()) {
+            hasPromptedPermissions = true
+            AlertDialog.Builder(this)
+                .setTitle("Usage Access Required")
+                .setMessage("Time Tracker needs Usage Access to track foreground app usage. Would you like to enable it now?")
+                .setPositiveButton("Enable") { _, _ -> requestUsageStatsPermission() }
+                .setNegativeButton("Later", null)
+                .show()
+        } else if (!isAccessibilityServiceEnabled()) {
+            hasPromptedPermissions = true
+            AlertDialog.Builder(this)
+                .setTitle("Browser Tracking")
+                .setMessage("Enable Time Tracker in Accessibility Settings to record browser page titles (e.g. Wikipedia - Vivaldi).")
+                .setPositiveButton("Enable") { _, _ -> requestAccessibilityPermission() }
+                .setNegativeButton("Later", null)
+                .show()
+        } else if (!isNotificationListenerEnabled()) {
+            hasPromptedPermissions = true
+            AlertDialog.Builder(this)
+                .setTitle("Media Tracking")
+                .setMessage("Enable Notification Access for Time Tracker to record active song/media playback (e.g. Spotify, YouTube Music).")
+                .setPositiveButton("Enable") { _, _ -> requestNotificationPermission() }
+                .setNegativeButton("Later", null)
+                .show()
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val enabledServices = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabledServices.contains(packageName)
+    }
+
+    private fun isNotificationListenerEnabled(): Boolean {
+        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: return false
+        return flat.contains(packageName)
+    }
+
+    private fun requestAccessibilityPermission() {
+        Toast.makeText(this, "Enable Time Tracker in Accessibility Settings", Toast.LENGTH_LONG).show()
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    private fun requestNotificationPermission() {
+        Toast.makeText(this, "Enable Time Tracker in Notification Access Settings", Toast.LENGTH_LONG).show()
+        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
     private fun refreshLogs() {
@@ -407,6 +495,30 @@ class MainActivity : AppCompatActivity() {
         } else {
             btnStart.text = "Grant Usage Access"
             btnStart.setBackgroundColor(Color.parseColor("#92400E"))
+        }
+
+        if (::btnAccessibility.isInitialized) {
+            if (isAccessibilityServiceEnabled()) {
+                btnAccessibility.text = "Browser: ON"
+                btnAccessibility.setBackgroundColor(Color.parseColor("#065F46"))
+                btnAccessibility.setTextColor(Color.WHITE)
+            } else {
+                btnAccessibility.text = "Enable Browser"
+                btnAccessibility.setBackgroundColor(Color.parseColor("#92400E"))
+                btnAccessibility.setTextColor(Color.WHITE)
+            }
+        }
+
+        if (::btnNotification.isInitialized) {
+            if (isNotificationListenerEnabled()) {
+                btnNotification.text = "Media: ON"
+                btnNotification.setBackgroundColor(Color.parseColor("#065F46"))
+                btnNotification.setTextColor(Color.WHITE)
+            } else {
+                btnNotification.text = "Enable Media"
+                btnNotification.setBackgroundColor(Color.parseColor("#92400E"))
+                btnNotification.setTextColor(Color.WHITE)
+            }
         }
     }
 }

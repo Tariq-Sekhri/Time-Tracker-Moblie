@@ -129,9 +129,21 @@ class AppMetadataHelper(private val context: Context) {
             }
         } else null
 
+        val resolvedLabel = if (BrowserTitleCache.isBrowserPackage(packageName)) {
+            val title = BrowserTitleCache.getLatestTitle(packageName)
+            if (!title.isNullOrBlank()) {
+                val base = appLabel ?: packageName
+                if (title.endsWith(base, ignoreCase = true)) title else "$title - $base"
+            } else {
+                appLabel
+            }
+        } else {
+            appLabel
+        }
+
         return RichLogMetadata(
             packageName = packageName,
-            appLabel = appLabel,
+            appLabel = resolvedLabel,
             activityClass = activityClass,
             lastTimeUsed = usageStats?.lastTimeUsed,
             totalTimeInForegroundMs = usageStats?.totalTimeInForeground,
