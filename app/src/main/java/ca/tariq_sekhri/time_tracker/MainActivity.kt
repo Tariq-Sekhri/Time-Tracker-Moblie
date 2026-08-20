@@ -89,7 +89,9 @@ class MainActivity : AppCompatActivity() {
 
         val btnSync = Button(this).apply {
             text = "Sync"
-            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                setMargins(0, 0, dp(8), 0)
+            }
             transformationMethod = null
             setBackgroundColor(Color.parseColor("#374151"))
             setTextColor(Color.WHITE)
@@ -98,10 +100,22 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val btnNotes = Button(this).apply {
+            text = "Notes"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
+            transformationMethod = null
+            setBackgroundColor(Color.parseColor("#374151"))
+            setTextColor(Color.WHITE)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, NotesActivity::class.java))
+            }
+        }
+
         header.addView(btnStart)
         header.addView(btnRefresh)
         header.addView(btnSkippedApps)
         header.addView(btnSync)
+        header.addView(btnNotes)
         root.addView(header)
 
         // Services Action Bar

@@ -40,6 +40,10 @@
             android:name=".SyncActivity"
             android:parentActivityName=".MainActivity" />
 
+        <activity
+            android:name=".NotesActivity"
+            android:parentActivityName=".MainActivity" />
+
         <service
             android:name=".BrowserTrackerService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
