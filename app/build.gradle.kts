@@ -10,21 +10,32 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
-fun signingProperty(name: String): String? =
-    keystoreProperties.getProperty(name) ?: System.getenv(name)
+fun signingProperty(vararg names: String): String? {
+    for (name in names) {
+        val prop = keystoreProperties.getProperty(name) ?: System.getenv(name)
+        if (!prop.isNullOrBlank()) return prop
+    }
+    return null
+}
 
-val releaseStoreFile = signingProperty("RELEASE_STORE_FILE")
-val hasReleaseSigning = !releaseStoreFile.isNullOrBlank()
+val releaseStoreFile = signingProperty("RELEASE_STORE_FILE", "storeFile")
+val releaseStorePassword = signingProperty("RELEASE_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingProperty("RELEASE_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingProperty("RELEASE_KEY_PASSWORD", "keyPassword")
+val hasReleaseSigning = !releaseStoreFile.isNullOrBlank() &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
 
 val appVersionCode =
     (project.findProperty("APP_VERSION_CODE") as String?)?.toIntOrNull()
         ?: System.getenv("APP_VERSION_CODE")?.toIntOrNull()
-        ?: 3
+        ?: 5
 
 val appVersionName =
     (project.findProperty("APP_VERSION_NAME") as String?)
         ?: System.getenv("APP_VERSION_NAME")
-        ?: "0.3.3"
+        ?: "0.4.0"
 
 android {
     namespace = "ca.tariq_sekhri.time_tracker"
@@ -43,10 +54,10 @@ android {
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
-                storeFile = rootProject.file(releaseStoreFile!!)
-                storePassword = signingProperty("RELEASE_STORE_PASSWORD")
-                keyAlias = signingProperty("RELEASE_KEY_ALIAS")
-                keyPassword = signingProperty("RELEASE_KEY_PASSWORD")
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
