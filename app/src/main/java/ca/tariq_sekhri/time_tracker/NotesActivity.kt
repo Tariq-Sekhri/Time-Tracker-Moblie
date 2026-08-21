@@ -3,13 +3,16 @@ package ca.tariq_sekhri.time_tracker
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
+import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -59,8 +62,28 @@ class NotesActivity : AppCompatActivity() {
             actions = listOf(
                 HeaderAction("Copy") { copyNotes() },
                 HeaderAction("Clear") { confirmClear() }
-            )
+            ),
+            showBack = false,
+            bottomNavigation = notesBottomNavigation()
         )
+    }
+
+    private fun notesBottomNavigation() = LinearLayout(this).apply {
+        gravity = Gravity.CENTER
+        setBackgroundColor(Color.rgb(14, 16, 21))
+        setPadding(dp(8), dp(6), dp(8), dp(12))
+        listOf("◷" to "dashboard", "☷" to "timeline", "▥" to "browser", "✎" to "notes", "⚙" to "settings").forEach { (icon, destination) ->
+            addView(Button(this@NotesActivity).apply {
+                text = icon; textSize = 28f; transformationMethod = null; setTextColor(Color.WHITE)
+                setBackgroundColor(if (destination == "notes") Color.rgb(101, 70, 164) else Color.rgb(42, 47, 60))
+                minHeight = 0; minimumHeight = 0
+                if (destination != "notes") setOnClickListener { openMain(destination) }
+            }, LinearLayout.LayoutParams(0, dp(50), 1f))
+        }
+    }
+    private fun openMain(destination: String) {
+        startActivity(Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_START_PAGE, destination).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
+        finish()
     }
 
     override fun onPause() {

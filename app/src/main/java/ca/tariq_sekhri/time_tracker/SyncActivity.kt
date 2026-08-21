@@ -101,6 +101,9 @@ class SyncActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             inputType = InputType.TYPE_CLASS_TEXT
             backgroundTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setText(syncManager.getServerIp() ?: SyncManager.DEFAULT_SERVER_IP)
+            setSingleLine(true)
+            setOnEditorActionListener { _, _, _ -> checkServer(); true }
             layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply {
                 marginEnd = dp(8)
             }

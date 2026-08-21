@@ -21,7 +21,8 @@ fun AppCompatActivity.setContentViewWithHeader(
     title: String,
     content: View,
     actions: List<HeaderAction> = emptyList(),
-    showBack: Boolean = true
+    showBack: Boolean = true,
+    bottomNavigation: View? = null
 ) {
     val root = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -68,6 +69,7 @@ fun AppCompatActivity.setContentViewWithHeader(
 
     root.addView(header, LinearLayout.LayoutParams(-1, -2))
     root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+    bottomNavigation?.let { root.addView(it, LinearLayout.LayoutParams(-1, -2)) }
 
     val contentBaseLeft = content.paddingLeft
     val contentBaseTop = content.paddingTop

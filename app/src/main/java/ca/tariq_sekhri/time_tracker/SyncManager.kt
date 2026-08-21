@@ -84,10 +84,12 @@ class SyncManager(private val context: Context) {
         })
     }
 
-    fun register(onComplete: (Boolean, String) -> Unit) {
+    fun defaultDeviceName(): String = "${Build.MANUFACTURER} ${Build.MODEL}"
+
+    fun register(deviceName: String = defaultDeviceName(), onComplete: (Boolean, String) -> Unit) {
         val ip = getServerIp() ?: return onComplete(false, "No server configured")
         val url = baseUrl(ip) + "/v1/register"
-        val name = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val name = deviceName.trim().ifBlank { defaultDeviceName() }
         val body = gson.toJson(RegisterPayload(name)).toRequestBody("application/json".toMediaType())
         val request = Request.Builder().url(url).post(body).build()
         client.newCall(request).enqueue(object : Callback {
@@ -148,6 +150,20 @@ class SyncManager(private val context: Context) {
                         else -> onComplete(false, "Status check error: ${response.code}")
                     }
                 }
+            }
+        })
+    }
+
+    fun fetchActiveDevices(onComplete: (Result<List<ServerDevice>>) -> Unit) {
+        val ip=getServerIp() ?: return onComplete(Result.failure(IOException("No server configured")))
+        val token=getDeviceToken() ?: return onComplete(Result.failure(IOException("Not registered")))
+        val request=Request.Builder().url(baseUrl(ip)+"/v1/devices").header("Authorization","Bearer $token").get().build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call,e: IOException) = onComplete(Result.failure(e))
+            override fun onResponse(call: Call,response: Response) {
+                val body=response.body?.string() ?: ""; val code=response.code; response.close()
+                if(!response.isSuccessful) onComplete(Result.failure(IOException("Device list error: $code")))
+                else onComplete(runCatching { gson.fromJson(body,Array<ServerDevice>::class.java).toList() })
             }
         })
     }
@@ -429,6 +445,7 @@ class SyncManager(private val context: Context) {
     private fun baseUrl(ip: String): String = "http://$ip:8765"
 
     data class RegisterPayload(val name: String)
+    data class ServerDevice(val uuid:String, val name:String)
 
     data class RegisterResponse(
         val uuid: String,
@@ -461,6 +478,7 @@ class SyncManager(private val context: Context) {
     )
 
     companion object {
+        const val DEFAULT_SERVER_IP = "100.75.95.90"
         const val AUTO_PUSH_INTERVAL_SECONDS = 300
         const val EXPECTED_CHECK_RESPONSE = "Time Tracker Backend v1"
         private const val PREF_SERVER_IP = "server_ip"
