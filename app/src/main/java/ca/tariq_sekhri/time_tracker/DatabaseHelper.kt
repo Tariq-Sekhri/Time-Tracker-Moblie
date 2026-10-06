@@ -213,7 +213,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         val existing = readableDatabase.query(
             TABLE_LOGS,
             arrayOf(COLUMN_ID),
-            "$COLUMN_PACKAGE_NAME=? AND $COLUMN_START_TIMESTAMP=?",
+            "$COLUMN_PACKAGE_NAME=? AND $COLUMN_START_TIMESTAMP=? AND COALESCE($COLUMN_START_EVENT_TYPE, '') != 'MEDIA_PLAYING'",
             arrayOf(metadata.packageName, startTimestampMs.toString()),
             null,
             null,
@@ -268,6 +268,25 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         val value = if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
         cursor.close()
         return value
+    }
+
+    fun foregroundIntervals(packageName: String, startMs: Long, endMs: Long): List<UsageInterval> {
+        val media = mutableListOf<UsageInterval>()
+        readableDatabase.rawQuery(
+            "SELECT $COLUMN_START_TIMESTAMP, COALESCE($COLUMN_END_TIMESTAMP, " +
+                "$COLUMN_START_TIMESTAMP + $COLUMN_DURATION * 1000) FROM $TABLE_LOGS " +
+                "WHERE $COLUMN_PACKAGE_NAME=? AND $COLUMN_START_EVENT_TYPE='MEDIA_PLAYING' " +
+                "AND $COLUMN_START_TIMESTAMP < ? AND COALESCE($COLUMN_END_TIMESTAMP, " +
+                "$COLUMN_START_TIMESTAMP + $COLUMN_DURATION * 1000) > ?",
+            arrayOf(packageName, endMs.toString(), startMs.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getLong(1) > startMs) media.add(UsageInterval(cursor.getLong(0), cursor.getLong(1)))
+            }
+        }
+        // A live media row's heartbeat may be a second behind the importer.
+        MediaUsagePriority.activeStart(packageName)?.let { media.add(UsageInterval(it, endMs)) }
+        return MediaUsagePriority.uncovered(startMs, endMs, media)
     }
 
     fun endLog(id: Long, endTimestampMs: Long, endEventType: String) {

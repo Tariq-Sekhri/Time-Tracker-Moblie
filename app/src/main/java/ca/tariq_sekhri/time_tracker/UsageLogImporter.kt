@@ -62,14 +62,20 @@ class UsageLogImporter(private val context: Context) {
                         metadata.packageName,
                         metadata.appLabel
                     )
-                    val id = dbHelper.insertImportedSession(
-                        metadata,
+                    dbHelper.foregroundIntervals(
+                        metadata.packageName,
                         session.pending.startTimestampMs,
-                        session.endTimestampMs,
-                        session.endEventType,
-                        category
-                    )
-                    if (id >= 0L) imported++
+                        session.endTimestampMs
+                    ).forEach { interval ->
+                        val id = dbHelper.insertImportedSession(
+                            metadata,
+                            interval.startMs,
+                            interval.endMs,
+                            session.endEventType,
+                            category
+                        )
+                        if (id >= 0L) imported++
+                    }
                 }
             }
 

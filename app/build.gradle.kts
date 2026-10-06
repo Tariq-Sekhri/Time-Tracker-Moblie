@@ -30,12 +30,12 @@ val hasReleaseSigning = !releaseStoreFile.isNullOrBlank() &&
 val appVersionCode =
     (project.findProperty("APP_VERSION_CODE") as String?)?.toIntOrNull()
         ?: System.getenv("APP_VERSION_CODE")?.toIntOrNull()
-        ?: 7
+        ?: 8
 
 val appVersionName =
     (project.findProperty("APP_VERSION_NAME") as String?)
         ?: System.getenv("APP_VERSION_NAME")
-        ?: "0.5.0"
+        ?: "0.5.1"
 
 android {
     namespace = "ca.tariq_sekhri.time_tracker"

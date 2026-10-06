@@ -4,6 +4,7 @@ Android 13+ app that records on-device app usage and turns it into a dashboard, 
 
 - Usage Access is required for the app to run.
 - Browser and media tracking are optional.
+- While media plays, only the media logs count for that app. App usage resumes when playback pauses; usage-history imports also exclude the recorded media time.
 - Notes are local and can be hidden without deleting them.
 - Sync is optional: connect to a private Time Tracker server, register the device, and wait for approval. Mobile uploads its own logs; other-device subscriptions are disabled.
 

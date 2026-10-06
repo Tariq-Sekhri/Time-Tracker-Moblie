@@ -258,7 +258,7 @@ class MediaTrackerService : NotificationListenerService() {
 
             if (previousFormat != formattedName) {
                 // End previous log if track changed
-                closeSession(packageName, "TRACK_CHANGED")
+                closeSession(packageName, "TRACK_CHANGED", keepPlaying = true)
 
                 // Start new log
                 val richMeta = RichLogMetadata(
@@ -272,6 +272,7 @@ class MediaTrackerService : NotificationListenerService() {
                 activeLogs[packageName] = id
                 activeStartTimes[packageName] = now
                 currentMetadata[packageName] = formattedName
+                MediaUsagePriority.setPlaying(packageName, true, now)
             } else {
                 // Update duration for existing track
                 activeLogs[packageName]?.let { id ->
@@ -299,7 +300,7 @@ class MediaTrackerService : NotificationListenerService() {
         }
     }
 
-    private fun closeSession(packageName: String, reason: String) {
+    private fun closeSession(packageName: String, reason: String, keepPlaying: Boolean = false) {
         val id = activeLogs.remove(packageName) ?: return
         val start = activeStartTimes.remove(packageName) ?: System.currentTimeMillis()
         val now = System.currentTimeMillis()
@@ -316,6 +317,7 @@ class MediaTrackerService : NotificationListenerService() {
         } else {
             dbHelper.endLog(id, now, reason)
         }
+        if (!keepPlaying) MediaUsagePriority.setPlaying(packageName, false, now)
 
         if (activeLogs.isEmpty()) {
             stopHeartbeat()
