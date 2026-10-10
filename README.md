@@ -1,12 +1,8 @@
 # Time Tracker Mobile
 
-Android 13+ app that records on-device app usage and turns it into a dashboard, app breakdowns, live logs, calendar day blocks, and statistics.
+**Alpha.** A working Android app for reviewing app usage, activity logs, and statistics. The UI is still being refined. Android 13+ and Usage Access permission are required.
 
-- Usage Access is required for the app to run.
-- Browser and media tracking are optional.
-- While media plays, only the media logs count for that app. App usage resumes when playback pauses; usage-history imports also exclude the recorded media time.
-- Notes are local and can be hidden without deleting them.
-- Sync is optional: connect to a private Time Tracker server, register the device, and wait for approval. Mobile uploads its own logs; other-device subscriptions are disabled.
+Usage data stays on device by default. Optional sync connects to a private [Time Tracker Backend](../Time-Tracker-Backend/README.md); devices require admin approval.
 
 ## Build
 
@@ -14,6 +10,6 @@ Android 13+ app that records on-device app usage and turns it into a dashboard, 
 .\gradlew.bat :app:assembleDebug
 ```
 
-APK: `app\build\outputs\apk\debug\app-debug.apk`
+Debug APK: `app\build\outputs\apk\debug\app-debug.apk`
 
-Local data stays on the device unless Sync is configured. See [privacy.md](privacy.md).
+See [privacy.md](privacy.md) for data handling details.
