@@ -29,6 +29,10 @@ class SyncManager(private val context: Context) {
 
     fun isActive(): Boolean = isRegistered() && prefs.getBoolean(PREF_DEVICE_ACTIVE, false)
 
+    fun serverBaseUrl(): String? = getServerIp()?.takeIf { it.isNotBlank() }?.let(::baseUrl)
+
+    fun deviceToken(): String? = getDeviceToken()
+
     fun unlockServer() {
         prefs.edit()
             .remove(PREF_SERVER_IP)

@@ -67,6 +67,8 @@ class MainActivity : AppCompatActivity() {
     private var statisticsRangeEndMs: Long? = null
     private var showAllStatisticsApps=false
     private var isChangingSyncServer=false
+    private var manualTimerCard: ManualTimerCard? = null
+    private val manualTimerChanged: () -> Unit = { manualTimerCard?.bind() }
     private enum class Page { OVERVIEW, USAGE_CHART, TIMELINE, CALENDAR, BROWSER, DAILY, TOTAL, SYNC, NOTES, SETTINGS }
     private val bg = Color.rgb(17, 19, 24); private val panel = Color.rgb(28, 32, 42)
     private val navy = Color.rgb(22, 32, 52); private val purple = Color.rgb(177, 139, 255); private val muted = Color.rgb(157, 164, 178)
@@ -88,6 +90,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::screen.isInitialized) render(current)
+        ManualTimerSync.addListener(manualTimerChanged)
+        ManualTimerSync.connect(this)
         screen.post {
             requireUsageAccess()
             if (UsageLogImporter.hasUsageAccess(this)) importUsageSilently()
@@ -99,12 +103,16 @@ class MainActivity : AppCompatActivity() {
         timelineRefreshHandler.removeCallbacks(timelineRefresh)
         backgroundImportHandler.removeCallbacks(backgroundImport)
         syncRefreshHandler.removeCallbacks(syncRefresh)
+        ManualTimerSync.removeListener(manualTimerChanged)
+        ManualTimerSync.disconnect()
+        manualTimerCard?.release()
         super.onPause()
     }
     private fun render(page: Page) {
         timelineRefreshHandler.removeCallbacks(timelineRefresh)
         syncRefreshHandler.removeCallbacks(syncRefresh)
         current = page; screen.removeAllViews(); nav.removeAllViews()
+        manualTimerCard?.release(); manualTimerCard=null
         if (page == Page.TIMELINE) {
             activeScroll = null
             screen.addView(legacyLiveTimeline())
@@ -142,7 +150,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun overview(): View {
-        val root=base(); root.addView(title("Usage")); gap(root,10); root.addView(usagePeriodSelector { usagePeriod=it; showAllHomeApps=false; render(Page.OVERVIEW) }); gap(root)
+        val root=base(); root.addView(title("Usage")); gap(root,10)
+        root.addView(ManualTimerCard(this).also { manualTimerCard=it }.view); gap(root)
+        root.addView(usagePeriodSelector { usagePeriod=it; showAllHomeApps=false; render(Page.OVERVIEW) }); gap(root)
         if (!hasAllTrackingPermissions()) {
             root.addView(permissionCard()); gap(root)
         }
