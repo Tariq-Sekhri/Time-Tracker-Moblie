@@ -29,6 +29,7 @@ android {
         applicationId = "ca.tariq_sekhri.time_tracker"
         minSdk = 33
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
