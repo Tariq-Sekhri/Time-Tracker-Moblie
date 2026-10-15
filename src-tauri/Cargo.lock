@@ -3329,7 +3329,7 @@ dependencies = [
 
 [[package]]
 name = "time-tracker-mobile"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "serde_json",
  "tauri",
