@@ -24,11 +24,15 @@ jobs:
         with:
           path: Time Tracker Moblie
 
+      - name: Resolve shared React revision
+        id: shared_ui
+        run: node -e "const fs=require('node:fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'ref='+require('./ui-source.json').ref+'\n')"
+
       - name: Check out shared React UI
         uses: actions/checkout@v4
         with:
           repository: Tariq-Sekhri/time_tracker
-          ref: ${{ vars.REACT_UI_REF || 'master' }}
+          ref: ${{ vars.REACT_UI_REF || steps.shared_ui.outputs.ref }}
           path: time tracker
 
       - name: Set up Node
