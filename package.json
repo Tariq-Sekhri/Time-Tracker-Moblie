@@ -1,0 +1,13 @@
+{
+  "name": "time-tracker-mobile",
+  "private": true,
+  "version": "0.5.2",
+  "scripts": {
+    "tauri": "tauri",
+    "build:ui": "npm --prefix \"../time tracker\" run build:mobile",
+    "check": "npm --prefix \"../time tracker\" run check:mobile",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build"
+  },
+  "devDependencies": { "@tauri-apps/cli": "^2.12.0" }
+}
