@@ -285,6 +285,8 @@ class SyncManager(private val context: Context) {
     }
 
     private fun finishNotesSync(ip: String, token: String, message: String, onComplete: (Boolean, String) -> Unit) {
+        try { ManualTimerStore.sync(context, client, baseUrl(ip), token) }
+        catch (e: Exception) { return onComplete(false, "Manual timer sync failed: ${e.message}") }
         try {
             NotesStore.sync(context, client, baseUrl(ip), token)
             resetNextAutoPush()
@@ -308,6 +310,8 @@ class SyncManager(private val context: Context) {
         val token = getDeviceToken()!!
         val statusResult = checkActivationBlocking(ip, token)
         if (!statusResult.successful || !isActive()) return statusResult
+        try { ManualTimerStore.sync(context, client, baseUrl(ip), token) }
+        catch (e: Exception) { return BlockingSyncResult(false, "Manual timer sync failed: ${e.message}", shouldRetry = true) }
         try { NotesStore.sync(context, client, baseUrl(ip), token) }
         catch (e: Exception) { return BlockingSyncResult(false, "Notes sync failed: ${e.message}", shouldRetry = true) }
         val deviceUuid = getDeviceUuid()

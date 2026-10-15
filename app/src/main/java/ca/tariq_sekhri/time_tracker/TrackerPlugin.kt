@@ -84,6 +84,12 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
                     "sync.devices" -> sync.fetchActiveDevices { result ->
                         result.fold({ invoke.resolveObject(it) }, { invoke.reject(it.message) })
                     }
+                    "manual.category.create" -> {
+                        val name = ManualTimerStore.createCategory(context, payload.getString("name"),
+                            if (payload.isNull("parent")) null else payload.getString("parent"))
+                        ManualTimerSync.pushPending()
+                        invoke.resolveObject(name)
+                    }
                     "timer.save", "timer.stop" -> host.runOnUiThread {
                         val title = payload.optString("title").trim()
                         val project = if (payload.isNull("project")) null else payload.optString("project").takeIf { it.isNotBlank() }
@@ -119,6 +125,7 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
         "sync" to mapOf("server" to sync.getServerIp(), "registered" to sync.isRegistered(), "active" to sync.isActive(),
             "uuid" to sync.getDeviceUuid(), "name" to sync.defaultDeviceName(), "nextSyncSeconds" to sync.secondsUntilNextAutoPush()),
         "timer" to ManualTimerSync.timer, "timerStatus" to ManualTimerSync.status.name,
+        "manualEntries" to ManualTimerStore.entries(context),
         "projects" to ManualTimerSync.projects,
         "version" to host.packageManager.getPackageInfo(context.packageName, 0).versionName,
         "firstLogMs" to firstLogMs)

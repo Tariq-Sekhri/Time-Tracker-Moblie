@@ -12,9 +12,8 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
- * The manual timer shared with every device on the sync server. The server owns
- * the timer, so a timer started on the desktop can be stopped here and the
- * other way round. A WebSocket keeps [timer] current while the app is open.
+ * Shared timers stay live through the server; offline timers are persisted locally.
+ * Finished sessions are always saved locally before upload, and can be retried safely.
  */
 object ManualTimerSync {
     enum class Status { NOT_READY, CONNECTING, CONNECTED, OFFLINE, OLD_SERVER }
@@ -30,14 +29,6 @@ object ManualTimerSync {
 
     data class Project(val name: String, val color: String)
 
-    private data class Entry(
-        val session_id: String,
-        val title: String,
-        val project_name: String?,
-        val start_time: Long,
-        val end_time: Long
-    )
-
     private data class Event(val type: String?, val timer: Timer?)
 
     private val gson = Gson()
@@ -49,8 +40,9 @@ object ManualTimerSync {
     private val main = Handler(Looper.getMainLooper())
     private val listeners = mutableSetOf<() -> Unit>()
 
-    var timer: Timer? = null; private set
-    var projects: List<Project> = emptyList(); private set
+    private var remoteTimer: Timer? = null
+    val timer: Timer? get() = appContext?.let { ManualTimerStore.running(it) } ?: remoteTimer
+    val projects: List<Project> get() = appContext?.let { ManualTimerStore.categories(it).map { category -> Project(category.name, category.color) } } ?: emptyList()
     var status = Status.NOT_READY; private set
 
     private var socket: WebSocket? = null
@@ -95,12 +87,16 @@ object ManualTimerSync {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 setStatus(Status.CONNECTED)
                 refreshProjects()
+                pushPending()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val event = runCatching { gson.fromJson(text, Event::class.java) }.getOrNull() ?: return
                 when (event.type) {
-                    "timer" -> update { timer = event.timer }
+                    "timer" -> update {
+                        val recorded = appContext?.let { ManualTimerStore.entries(it).any { entry -> entry.session_id == event.timer?.session_id } } == true
+                        remoteTimer = if (recorded) null else event.timer
+                    }
                     "projects" -> refreshProjects()
                 }
             }
@@ -133,7 +129,8 @@ object ManualTimerSync {
                     if (!response.isSuccessful) return
                     val body = response.body?.string() ?: return
                     val list = runCatching { gson.fromJson(body, Array<Project>::class.java).toList() }.getOrNull() ?: return
-                    update { projects = list }
+                    appContext?.let { context -> ManualTimerStore.mergeCategories(context, list) }
+                    update {}
                 }
             }
         })
@@ -141,7 +138,7 @@ object ManualTimerSync {
 
     /** Starts a timer, or renames the running one. Callbacks run on the main thread. */
     fun save(title: String, projectName: String?, onError: (String) -> Unit, onSaved: () -> Unit = {}) {
-        val (base, token) = connection() ?: return onError("Register this device to use the shared timer")
+        if (!validDetails(title, projectName)) return onError("Use a title up to 200 characters and a project up to 203 characters")
         val current = timer
         val body = Timer(
             session_id = current?.session_id ?: UUID.randomUUID().toString(),
@@ -149,21 +146,30 @@ object ManualTimerSync {
             project_name = projectName,
             start_time = current?.start_time ?: (System.currentTimeMillis() / 1000)
         )
+        val context = appContext ?: return onError("Timer storage is not ready")
+        val localSave = {
+            runCatching { ManualTimerStore.save(context, body) }
+                .fold({ update { onSaved() } }, { main.post { onError(it.message ?: "Could not save timer") } })
+        }
+        val connection = connection()
+        if (ManualTimerStore.running(context) != null || status != Status.CONNECTED || connection == null) {
+            localSave(); return
+        }
+        val (base, token) = connection
         val request = Request.Builder().url("$base/v1/manual/timer").header("Authorization", "Bearer $token")
             .put(gson.toJson(body).toRequestBody(json)).build()
         client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { main.post { onError("Could not reach the sync server") } }
+            override fun onFailure(call: Call, e: IOException) { localSave() }
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     val text = response.body?.string()
                     when {
                         // 409: another device already started a timer; show that one.
                         response.isSuccessful || response.code == 409 ->
-                            runCatching { gson.fromJson(text, Timer::class.java) }.getOrNull()?.let { saved -> update { timer = saved; onSaved() } }
+                            runCatching { gson.fromJson(text, Timer::class.java) }.getOrNull()?.let { saved -> update { remoteTimer = saved; onSaved() } }
                                 ?: main.post { onError("Invalid timer response") }
-                        response.code == 410 -> update { if (timer?.session_id == body.session_id) timer = null; onError("Timer has already stopped") }
-                        response.code == 404 || response.code == 405 -> { setStatus(Status.OLD_SERVER); main.post { onError("Update the sync server to use the shared timer") } }
-                        else -> main.post { onError("Timer error: ${response.code}") }
+                        response.code == 410 -> update { if (remoteTimer?.session_id == body.session_id) remoteTimer = null; onError("Timer has already stopped") }
+                        else -> { if (response.code == 404 || response.code == 405) setStatus(Status.OLD_SERVER); localSave() }
                     }
                 }
             }
@@ -172,20 +178,23 @@ object ManualTimerSync {
 
     /** Stops the running timer wherever it was started and records it with the given details. */
     fun stop(title: String, projectName: String?, onError: (String) -> Unit, onRecorded: () -> Unit) {
-        val (base, token) = connection() ?: return onError("Register this device to use the shared timer")
+        if (!validDetails(title, projectName)) return onError("Use a title up to 200 characters and a project up to 203 characters")
         val current = timer ?: return
-        val end = maxOf(System.currentTimeMillis() / 1000, current.start_time + 1)
-        val entry = Entry(current.session_id, title.trim(), projectName, current.start_time, end)
-        val request = Request.Builder().url("$base/v1/manual/entries").header("Authorization", "Bearer $token")
-            .post(gson.toJson(entry).toRequestBody(json)).build()
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { main.post { onError("Could not reach the sync server") } }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (response.isSuccessful) update { if (timer?.session_id == current.session_id) timer = null; onRecorded() }
-                    else main.post { onError("Timer error: ${response.code}") }
-                }
-            }
-        })
+        val context = appContext ?: return onError("Timer storage is not ready")
+        val recordLocal = {
+            runCatching { ManualTimerStore.finish(context, current, title, projectName) }
+                .fold({ update { if (remoteTimer?.session_id == current.session_id) remoteTimer = null; onRecorded(); pushPending() } },
+                    { main.post { onError(it.message ?: "Could not record timer") } })
+        }
+        recordLocal()
+    }
+
+    private fun validDetails(title: String, project: String?) = title.trim().codePointCount(0, title.trim().length) <= 200 &&
+        title.none { it.isISOControl() } && (project == null || (project.isNotBlank() && project.codePointCount(0, project.length) <= 203))
+
+    fun pushPending() {
+        val context = appContext ?: return
+        val (base, token) = connection() ?: return
+        Thread { runCatching { ManualTimerStore.sync(context, client, base, token) }; update {} }.start()
     }
 }
