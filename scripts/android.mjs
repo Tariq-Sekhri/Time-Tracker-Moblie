@@ -1,5 +1,5 @@
 import {spawnSync} from "node:child_process";
-import {existsSync, readdirSync} from "node:fs";
+import {existsSync, readdirSync, readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
 
@@ -26,5 +26,14 @@ if (mode === "check") {
         ":app:testUniversalDebugUnitTest", ":app:lintUniversalDebug", "--console=plain"], project);
 } else {
     if (!existsSync(path.join(root, "..", "time tracker", "src", "mobile", "main.tsx"))) throw new Error("Clone the matching time_tracker React repository beside this checkout as 'time tracker'.");
+    if (mode === "build" && !args.includes("--debug")) {
+        const propertiesPath = path.join(root, "signing", "keystore.properties");
+        const properties = existsSync(propertiesPath) ? Object.fromEntries(readFileSync(propertiesPath, "utf8").split(/\r?\n/).filter(line => /^\s*[^#!\s][^=]*=/.test(line)).map(line => {
+            const index = line.indexOf("="); return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
+        })) : {};
+        for (const [key, variable] of [["storeFile", "RELEASE_STORE_FILE"], ["storePassword", "RELEASE_STORE_PASSWORD"], ["keyAlias", "RELEASE_KEY_ALIAS"], ["keyPassword", "RELEASE_KEY_PASSWORD"]]) {
+            if (!(properties[key] || properties[variable] || env[variable])) throw new Error(`Release signing is missing ${key}; configure signing/keystore.properties or ${variable}.`);
+        }
+    }
     run(process.execPath, [path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js"), "android", mode || "build", ...args]);
 }

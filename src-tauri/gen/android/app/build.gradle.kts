@@ -18,7 +18,7 @@ val signing = Properties().apply {
     val props = file("../../../../signing/keystore.properties")
     if (props.exists()) props.inputStream().use { load(it) }
 }
-fun signingValue(key: String, env: String) = signing.getProperty(key) ?: System.getenv(env)
+fun signingValue(key: String, env: String) = signing.getProperty(key) ?: signing.getProperty(env) ?: System.getenv(env)
 val releaseStore = signingValue("storeFile", "RELEASE_STORE_FILE")
 
 android {

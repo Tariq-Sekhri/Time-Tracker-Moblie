@@ -28,3 +28,5 @@ local.properties
 /src-tauri/gen/android/app/tauri.properties
 /src-tauri/gen/android/app/proguard-tauri.pro
 /src-tauri/gen/schemas/
+/.qa/
+*.log
