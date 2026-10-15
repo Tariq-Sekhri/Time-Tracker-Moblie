@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "main",
+  "description": "Local bundled Time Tracker UI",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

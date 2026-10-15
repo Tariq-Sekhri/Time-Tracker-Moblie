@@ -140,7 +140,7 @@ object ManualTimerSync {
     }
 
     /** Starts a timer, or renames the running one. Callbacks run on the main thread. */
-    fun save(title: String, projectName: String?, onError: (String) -> Unit) {
+    fun save(title: String, projectName: String?, onError: (String) -> Unit, onSaved: () -> Unit = {}) {
         val (base, token) = connection() ?: return onError("Register this device to use the shared timer")
         val current = timer
         val body = Timer(
@@ -159,8 +159,9 @@ object ManualTimerSync {
                     when {
                         // 409: another device already started a timer; show that one.
                         response.isSuccessful || response.code == 409 ->
-                            runCatching { gson.fromJson(text, Timer::class.java) }.getOrNull()?.let { saved -> update { timer = saved } }
-                        response.code == 410 -> update { if (timer?.session_id == body.session_id) timer = null }
+                            runCatching { gson.fromJson(text, Timer::class.java) }.getOrNull()?.let { saved -> update { timer = saved; onSaved() } }
+                                ?: main.post { onError("Invalid timer response") }
+                        response.code == 410 -> update { if (timer?.session_id == body.session_id) timer = null; onError("Timer has already stopped") }
                         response.code == 404 || response.code == 405 -> { setStatus(Status.OLD_SERVER); main.post { onError("Update the sync server to use the shared timer") } }
                         else -> main.post { onError("Timer error: ${response.code}") }
                     }

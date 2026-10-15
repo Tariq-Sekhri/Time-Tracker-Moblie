@@ -25,7 +25,7 @@ import java.util.Calendar
 import kotlin.math.max
 
 /** Figma-led mobile shell. Notes remains its own activity and data stays in DatabaseHelper. */
-class MainActivity : AppCompatActivity() {
+class LegacyMainActivity : AppCompatActivity() {
     private val db by lazy { DatabaseHelper(this) }
     private val syncManager by lazy { SyncManager(this) }
     private lateinit var screen: FrameLayout
@@ -143,7 +143,7 @@ class MainActivity : AppCompatActivity() {
     private fun gap(parent: LinearLayout, h: Int = 12) = parent.addView(Space(this), LinearLayout.LayoutParams(1, dp(h)))
     private fun button(text: String, selected: Boolean = false, size: Int = 14) = Button(this).apply { this.text = text; textSize = size.toFloat(); transformationMethod = null; setTextColor(Color.WHITE); setBackgroundColor(if (selected) Color.rgb(101, 70, 164) else Color.rgb(42, 47, 60)); minHeight = 0; minimumHeight = 0; setPadding(dp(6), 0, dp(6), 0) }
     private fun navIcon(icon:Int,selected:Boolean)=ImageButton(this).apply { setImageResource(icon); setColorFilter(Color.WHITE); setBackgroundColor(if(selected) Color.rgb(101,70,164) else Color.TRANSPARENT); setPadding(dp(10),dp(8),dp(10),dp(8)); contentDescription="Navigation" }
-    private fun periodTabs(selected: String, onSelect: (String) -> Unit = {}) = LinearLayout(this).apply { setBackgroundColor(Color.rgb(232,232,237)); setPadding(dp(3),dp(3),dp(3),dp(3)); listOf("Today","Week","Month").forEach { p -> addView(Button(this@MainActivity).apply { text=p; textSize=14f; transformationMethod=null; setTextColor(Color.rgb(27,29,35)); setBackgroundColor(if(p==selected) Color.rgb(216,198,255) else Color.TRANSPARENT); setOnClickListener { onSelect(p) } }, LinearLayout.LayoutParams(0,dp(48),1f)) } }
+    private fun periodTabs(selected: String, onSelect: (String) -> Unit = {}) = LinearLayout(this).apply { setBackgroundColor(Color.rgb(232,232,237)); setPadding(dp(3),dp(3),dp(3),dp(3)); listOf("Today","Week","Month").forEach { p -> addView(Button(this@LegacyMainActivity).apply { text=p; textSize=14f; transformationMethod=null; setTextColor(Color.rgb(27,29,35)); setBackgroundColor(if(p==selected) Color.rgb(216,198,255) else Color.TRANSPARENT); setOnClickListener { onSelect(p) } }, LinearLayout.LayoutParams(0,dp(48),1f)) } }
     private fun usagePeriodSelector(onSelect: (String) -> Unit) = LinearLayout(this).apply {
         addView(periodTabs(if(usagePeriod=="Custom") "" else usagePeriod,onSelect),LinearLayout.LayoutParams(0,dp(54),1f))
         addView(button("▣",usagePeriod=="Custom",18).apply { contentDescription="Choose date range"; setOnClickListener { showCustomRangePicker() } },LinearLayout.LayoutParams(dp(52),dp(54)).apply { marginStart=dp(6) })
@@ -160,19 +160,19 @@ class MainActivity : AppCompatActivity() {
         val allAppSlices=usageAppSlices(logs)
         val donutSlices=allAppSlices.take(8)
         root.addView(card().apply {
-            val cardHeader=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
+            val cardHeader=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
             cardHeader.addView(title("Mobile App Usage Breakdown").apply { textSize=17f },LinearLayout.LayoutParams(0,-2,1f))
-            val modeSwitch=LinearLayout(this@MainActivity).apply { setBackgroundColor(Color.rgb(42,47,60)); setPadding(dp(2),dp(2),dp(2),dp(2)) }
+            val modeSwitch=LinearLayout(this@LegacyMainActivity).apply { setBackgroundColor(Color.rgb(42,47,60)); setPadding(dp(2),dp(2),dp(2),dp(2)) }
             modeSwitch.addView(button("◔",true,20).apply { setOnClickListener { render(Page.OVERVIEW) } },LinearLayout.LayoutParams(dp(42),dp(38)))
             modeSwitch.addView(button("⌁",false,20).apply { setOnClickListener { render(Page.USAGE_CHART) } },LinearLayout.LayoutParams(dp(42),dp(38)))
             cardHeader.addView(modeSwitch)
             addView(cardHeader)
             if (donutSlices.isEmpty()) addView(label("No usage data in this selected range.",15f).apply { gravity=Gravity.CENTER; setPadding(0,dp(80),0,dp(80)) })
-            else addView(AppUsageDonutView(this@MainActivity,donutSlices),LinearLayout.LayoutParams(-1,dp(270)))
+            else addView(AppUsageDonutView(this@LegacyMainActivity,donutSlices),LinearLayout.LayoutParams(-1,dp(270)))
             addView(label("━━━━━━",18f).apply { gravity=Gravity.CENTER; setTextColor(purple) })
         }); gap(root)
         root.addView(card().apply {
-            val listHeader=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
+            val listHeader=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
             listHeader.addView(title("Apps").apply { textSize=17f },LinearLayout.LayoutParams(0,-2,1f))
             listHeader.addView(button("Browser",usageBrowserOnly,13).apply { setOnClickListener { usageBrowserOnly=!usageBrowserOnly; render(Page.OVERVIEW) } },LinearLayout.LayoutParams(dp(88),dp(38)))
             addView(listHeader)
@@ -214,7 +214,7 @@ class MainActivity : AppCompatActivity() {
         val shell=FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(12),dp(12),dp(12),dp(66)) }
         val header=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL; setBackgroundColor(Color.rgb(31,41,55)); setPadding(dp(8),dp(8),dp(8),dp(8)) }
-        header.addView(button("Skipped").apply { setOnClickListener { startActivity(Intent(this@MainActivity,SkippedAppsActivity::class.java)) } },LinearLayout.LayoutParams(-1,dp(46)))
+        header.addView(button("Skipped").apply { setOnClickListener { startActivity(Intent(this@LegacyMainActivity,SkippedAppsActivity::class.java)) } },LinearLayout.LayoutParams(-1,dp(46)))
         root.addView(header)
         liveLogList=ListView(this).apply { divider=null; dividerHeight=0; setBackgroundColor(Color.BLACK); clipToPadding=false; setPadding(0,dp(8),0,0) }
         root.addView(liveLogList,LinearLayout.LayoutParams(-1,0,1f))
@@ -230,7 +230,7 @@ class MainActivity : AppCompatActivity() {
             val day=selected+offset*86_400_000L
             val enabled=day in first..today
             val text=SimpleDateFormat("EEE\nd",Locale.getDefault()).format(Date(day))
-            addView(Button(this@MainActivity).apply {
+            addView(Button(this@LegacyMainActivity).apply {
                 this.text=text; textSize=11f; transformationMethod=null; setTextColor(if(enabled) Color.rgb(210,213,220) else Color.rgb(78,82,91)); setBackgroundColor(if(day==selected) Color.rgb(42,47,60) else Color.TRANSPARENT); isEnabled=enabled
                 if(enabled) setOnClickListener { liveLogDayStartMs=day; render(Page.TIMELINE) }
             },LinearLayout.LayoutParams(0,dp(52),1f))
@@ -255,7 +255,7 @@ class MainActivity : AppCompatActivity() {
         header.addView(title("Notes"),LinearLayout.LayoutParams(0,dp(52),1f))
         val editor=NotesEditor(this)
         header.addView(button("Copy").apply { setOnClickListener { editor.copyNotes() } },LinearLayout.LayoutParams(dp(64),dp(42)))
-        header.addView(button("Clear").apply { setOnClickListener { AlertDialog.Builder(this@MainActivity).setTitle("Clear notes?").setMessage("Are you sure you want to clear your notes?").setNegativeButton("Cancel",null).setPositiveButton("Clear") { _,_-> editor.clearNotes() }.show() } },LinearLayout.LayoutParams(dp(64),dp(42)).apply { marginStart=dp(6) })
+        header.addView(button("Clear").apply { setOnClickListener { AlertDialog.Builder(this@LegacyMainActivity).setTitle("Clear notes?").setMessage("Are you sure you want to clear your notes?").setNegativeButton("Cancel",null).setPositiveButton("Clear") { _,_-> editor.clearNotes() }.show() } },LinearLayout.LayoutParams(dp(64),dp(42)).apply { marginStart=dp(6) })
         root.addView(header)
         root.addView(editor,LinearLayout.LayoutParams(-1,0,1f))
         return root
@@ -299,14 +299,14 @@ class MainActivity : AppCompatActivity() {
             root.addView(header); gap(root); root.addView(calendarGrid(db.getAllLogs().take(45))); gap(root); root.addView(dateRail()); return root
         }
         val controls=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL; setBackgroundColor(Color.rgb(31,41,55)); setPadding(dp(8),dp(8),dp(8),dp(8)) }
-        controls.addView(button("Skipped").apply { setOnClickListener { startActivity(Intent(this@MainActivity,SkippedAppsActivity::class.java)) } },LinearLayout.LayoutParams(0,dp(44),1f).apply { marginStart=dp(6) })
+        controls.addView(button("Skipped").apply { setOnClickListener { startActivity(Intent(this@LegacyMainActivity,SkippedAppsActivity::class.java)) } },LinearLayout.LayoutParams(0,dp(44),1f).apply { marginStart=dp(6) })
         root.addView(controls); gap(root,8)
         root.addView(label("Live log table",14f).apply { setTextColor(Color.WHITE); typeface=Typeface.DEFAULT_BOLD; setPadding(dp(4),dp(4),0,dp(6)) })
         val logs=db.getAllLogs()
         if(logs.isEmpty()) root.addView(label("No tracked activity yet. The live tracker will add the foreground app here."))
         logs.forEachIndexed { i,e ->
             val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(12),dp(12),dp(4),dp(12)); setBackgroundColor(if(i%2==0)Color.BLACK else Color.rgb(17,24,39)) }
-            row.addView(LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; addView(TextView(this@MainActivity).apply { text=e.appLabel ?: e.packageName; setTextColor(Color.rgb(209,213,219)); textSize=14f; typeface=Typeface.DEFAULT_BOLD }); addView(label("${timestamp(e.startTimestamp)}\n${formatDuration(e.duration)}")) },LinearLayout.LayoutParams(0,-2,1f))
+            row.addView(LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; addView(TextView(this@LegacyMainActivity).apply { text=e.appLabel ?: e.packageName; setTextColor(Color.rgb(209,213,219)); textSize=14f; typeface=Typeface.DEFAULT_BOLD }); addView(label("${timestamp(e.startTimestamp)}\n${formatDuration(e.duration)}")) },LinearLayout.LayoutParams(0,-2,1f))
             row.addView(button("×",false,19).apply { setTextColor(Color.rgb(245,158,11)); contentDescription="Add to skipped apps"; setOnClickListener { db.addSkippedApp(e.packageName); render(Page.TIMELINE) } },LinearLayout.LayoutParams(dp(40),dp(42)))
             row.addView(button("⧉").apply { contentDescription="Copy package"; setOnClickListener { copy(e.packageName) } },LinearLayout.LayoutParams(dp(40),dp(42)))
             row.addView(button("⌫").apply { setTextColor(Color.rgb(153,27,27)); contentDescription="Delete log"; setOnClickListener { db.deleteLog(e.id); render(Page.TIMELINE) } },LinearLayout.LayoutParams(dp(40),dp(42)))
@@ -314,7 +314,7 @@ class MainActivity : AppCompatActivity() {
         }
         return root
     }
-    private fun calendarGrid(logs:List<LogEntry>)=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(navy); setPadding(dp(8),dp(8),dp(8),dp(8)); if(logs.isEmpty()) addView(label("Your tracked time blocks will appear here.")); logs.take(14).reversed().forEachIndexed { i,e -> addView(TextView(this@MainActivity).apply { text="${timestamp(e.startTimestamp)}  ${e.appLabel ?: e.packageName}\n${formatDuration(e.duration)}"; setTextColor(Color.WHITE); textSize=13f; setPadding(dp(12),dp(12),dp(12),dp(12)); setBackgroundColor(listOf(Color.rgb(92,94,44),Color.rgb(47,82,66),Color.rgb(49,77,119),Color.rgb(143,83,45))[i%4]) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(3) }) } }
+    private fun calendarGrid(logs:List<LogEntry>)=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(navy); setPadding(dp(8),dp(8),dp(8),dp(8)); if(logs.isEmpty()) addView(label("Your tracked time blocks will appear here.")); logs.take(14).reversed().forEachIndexed { i,e -> addView(TextView(this@LegacyMainActivity).apply { text="${timestamp(e.startTimestamp)}  ${e.appLabel ?: e.packageName}\n${formatDuration(e.duration)}"; setTextColor(Color.WHITE); textSize=13f; setPadding(dp(12),dp(12),dp(12),dp(12)); setBackgroundColor(listOf(Color.rgb(92,94,44),Color.rgb(47,82,66),Color.rgb(49,77,119),Color.rgb(143,83,45))[i%4]) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(3) }) } }
     private fun dateRail()=LinearLayout(this).apply { gravity=Gravity.CENTER; listOf("‹","Thu 6","Fri 7","Sat Aug 8","Sun 9","+","…").forEach { t -> addView(button(t,t=="Sat Aug 8"),LinearLayout.LayoutParams(0,dp(44),if(t.length>2)1.4f else .7f).apply { marginEnd=dp(3) }) } }
 
     private fun usageChart(): View {
@@ -326,19 +326,19 @@ class MainActivity : AppCompatActivity() {
         logs.forEach { log -> val index=if(daily) ((log.startTimestamp-start)/86_400_000L).toInt() else ((log.startTimestamp-start)/3_600_000L).toInt(); if(index in values.indices) values[index]+=log.duration }
         val labels=when(usagePeriod) { "Today" -> hourlyAxisLabels(); "Week" -> listOf("Mon","Tue","Wed","Thu","Fri","Sat","Sun"); "Custom" -> listOf("Start","End"); else -> listOf("1","8","15","22",daysInMonth.toString()) }
         root.addView(card().apply {
-            val cardHeader=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
+            val cardHeader=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
             cardHeader.addView(label(if(usagePeriod=="Today")"Usage by time" else "Usage by day",17f).apply { setTextColor(Color.WHITE); typeface=Typeface.DEFAULT_BOLD },LinearLayout.LayoutParams(0,-2,1f))
-            val modeSwitch=LinearLayout(this@MainActivity).apply { setBackgroundColor(Color.rgb(42,47,60)); setPadding(dp(2),dp(2),dp(2),dp(2)) }
+            val modeSwitch=LinearLayout(this@LegacyMainActivity).apply { setBackgroundColor(Color.rgb(42,47,60)); setPadding(dp(2),dp(2),dp(2),dp(2)) }
             modeSwitch.addView(button("◔",false,20).apply { setOnClickListener { render(Page.OVERVIEW) } },LinearLayout.LayoutParams(dp(42),dp(38)))
             modeSwitch.addView(button("⌁",true,20),LinearLayout.LayoutParams(dp(42),dp(38)))
             cardHeader.addView(modeSwitch); addView(cardHeader)
             addView(label(if(usagePeriod=="Today")"Today" else if(usagePeriod=="Week")"Monday to Sunday" else "This month",13f).apply { setPadding(0,dp(5),0,0) })
-            addView(UsageTrendChartView(this@MainActivity,values,labels,useBarUsageChart()),LinearLayout.LayoutParams(-1,dp(270))); addView(label("${formatDuration(values.sum())} total",14f).apply { gravity=Gravity.END })
+            addView(UsageTrendChartView(this@LegacyMainActivity,values,labels,useBarUsageChart()),LinearLayout.LayoutParams(-1,dp(270))); addView(label("${formatDuration(values.sum())} total",14f).apply { gravity=Gravity.END })
         })
         gap(root)
         val appSlices=usageAppSlices(logs)
         root.addView(card().apply {
-            val listHeader=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
+            val listHeader=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
             listHeader.addView(title("Apps").apply { textSize=17f },LinearLayout.LayoutParams(0,-2,1f))
             listHeader.addView(button("Browser",usageBrowserOnly,13).apply { setOnClickListener { usageBrowserOnly=!usageBrowserOnly; render(Page.USAGE_CHART) } },LinearLayout.LayoutParams(dp(88),dp(38)))
             addView(listHeader)
@@ -353,7 +353,7 @@ class MainActivity : AppCompatActivity() {
         val blocks=buildCalendarBlocks(db.getAllLogs().filter { it.startTimestamp in start until end })
         root.addView(title("Calendar day view")); root.addView(label("${SimpleDateFormat("EEE, MMM d",Locale.getDefault()).format(Date(start))} · starts ${dayStartHour()}:00")); gap(root,8)
         CalendarDayView.HOUR_OFFSET=dayStartHour()
-        root.addView(card().apply { setPadding(dp(4),dp(4),dp(4),dp(4)); if(blocks.isEmpty()) addView(label("No timeblocks yet for this day.").apply { gravity=Gravity.CENTER; setPadding(0,dp(260),0,dp(260)) }) else addView(CalendarDayView(this@MainActivity,start,blocks,calendarDayZoom,calendarDayPanHours) { zoom,pan -> calendarDayZoom=zoom; calendarDayPanHours=pan },LinearLayout.LayoutParams(-1,dp(720))) })
+        root.addView(card().apply { setPadding(dp(4),dp(4),dp(4),dp(4)); if(blocks.isEmpty()) addView(label("No timeblocks yet for this day.").apply { gravity=Gravity.CENTER; setPadding(0,dp(260),0,dp(260)) }) else addView(CalendarDayView(this@LegacyMainActivity,start,blocks,calendarDayZoom,calendarDayPanHours) { zoom,pan -> calendarDayZoom=zoom; calendarDayPanHours=pan },LinearLayout.LayoutParams(-1,dp(720))) })
         return root
     }
     private fun calendarDayPicker() = LinearLayout(this).apply {
@@ -361,7 +361,7 @@ class MainActivity : AppCompatActivity() {
         val selected=calendarDayStart(); val first=firstLiveLogDay(); val today=trackingDayStart(System.currentTimeMillis())
         (-2..2).forEach { offset ->
             val day=selected+offset*86_400_000L; val enabled=day in first..today
-            addView(Button(this@MainActivity).apply {
+            addView(Button(this@LegacyMainActivity).apply {
                 text=SimpleDateFormat("EEE\nd",Locale.getDefault()).format(Date(day)); textSize=11f; transformationMethod=null
                 setTextColor(if(enabled) Color.rgb(210,213,220) else Color.rgb(78,82,91)); setBackgroundColor(if(day==selected) Color.rgb(42,47,60) else Color.TRANSPARENT); isEnabled=enabled
                 if(enabled) setOnClickListener { calendarDayStartMs=day; render(Page.BROWSER) }
@@ -421,7 +421,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(LinearLayout(this).apply { addView(button("Daily Avg",!totalMode).apply { setOnClickListener { render(Page.DAILY) } },LinearLayout.LayoutParams(0,dp(46),1f)); addView(button("Total",totalMode).apply { setOnClickListener { render(Page.TOTAL) } },LinearLayout.LayoutParams(0,dp(46),1f)) }); gap(root)
         root.addView(card().apply { addView(label(if(totalMode)"Total Time" else "Average per day")); addView(title(formatDuration(if(totalMode)seconds else seconds/days)).apply { textSize=31f }) }); gap(root)
         if(totalMode) db.getAllLogs().minOfOrNull { it.startTimestamp }?.let { first ->
-            root.addView(card().apply { addView(label("First Active Day")); addView(TextView(this@MainActivity).apply { text=SimpleDateFormat("MMM d, yyyy",Locale.getDefault()).format(Date(first)); setTextColor(Color.WHITE); textSize=18f; typeface=Typeface.DEFAULT_BOLD }); addView(label(timeSince(first)).apply { setPadding(0,dp(3),0,0) }) })
+            root.addView(card().apply { addView(label("First Active Day")); addView(TextView(this@LegacyMainActivity).apply { text=SimpleDateFormat("MMM d, yyyy",Locale.getDefault()).format(Date(first)); setTextColor(Color.WHITE); textSize=18f; typeface=Typeface.DEFAULT_BOLD }); addView(label(timeSince(first)).apply { setPadding(0,dp(3),0,0) }) })
             gap(root)
         }
         val appSlices=usageAppSlices(logs); val visible=if(showAllStatisticsApps) appSlices else appSlices.take(5)
@@ -429,28 +429,28 @@ class MainActivity : AppCompatActivity() {
         if(!totalMode) {
             val hourly=MutableList(24) { 0L }; logs.forEach { log -> val hour=((log.startTimestamp-start)%86_400_000L/3_600_000L).toInt(); if(hour in hourly.indices) hourly[hour]+=log.duration }
             val labels=hourlyAxisLabels()
-            root.addView(card().apply { addView(title("Daily Usage Time").apply { textSize=17f }); addView(label("Average by hour across the selected range").apply { setPadding(0,dp(4),0,0) }); addView(UsageTrendChartView(this@MainActivity,hourly.map { it/days },labels,useBarUsageChart()),LinearLayout.LayoutParams(-1,dp(270))) })
+            root.addView(card().apply { addView(title("Daily Usage Time").apply { textSize=17f }); addView(label("Average by hour across the selected range").apply { setPadding(0,dp(4),0,0) }); addView(UsageTrendChartView(this@LegacyMainActivity,hourly.map { it/days },labels,useBarUsageChart()),LinearLayout.LayoutParams(-1,dp(270))) })
         }
         return root
     }
     private fun settings(): View { val root=base(); root.addView(title("Settings")); gap(root)
         root.addView(card().apply {
-            addView(CheckBox(this@MainActivity).apply {
+            addView(CheckBox(this@LegacyMainActivity).apply {
                 text="Use bar graph"; setTextColor(Color.WHITE); textSize=16f; isChecked=useBarUsageChart()
                 setOnCheckedChangeListener { _,checked -> getSharedPreferences("TimeTrackerPrefs",MODE_PRIVATE).edit().putBoolean("use_bar_usage_chart",checked).apply() }
             })
         }); gap(root)
         root.addView(card().apply {
-            addView(CheckBox(this@MainActivity).apply {
+            addView(CheckBox(this@LegacyMainActivity).apply {
                 text="Enable Notes"; setTextColor(Color.WHITE); textSize=16f; isChecked=notesEnabled()
                 setOnCheckedChangeListener { _,checked -> getSharedPreferences("TimeTrackerPrefs",MODE_PRIVATE).edit().putBoolean("notes_enabled",checked).apply(); render(Page.SETTINGS) }
             })
             addView(label("Turning this off only hides Notes; your saved notes remain and continue syncing."))
         }); gap(root)
         root.addView(card().apply {
-            addView(TextView(this@MainActivity).apply { text="Start hour"; setTextColor(Color.WHITE); textSize=16f })
+            addView(TextView(this@LegacyMainActivity).apply { text="Start hour"; setTextColor(Color.WHITE); textSize=16f })
             addView(label("Daily usage begins at this hour. Week starts Monday and Month starts on the first at the same hour.").apply { setPadding(0,dp(4),0,dp(8)) })
-            addView(EditText(this@MainActivity).apply {
+            addView(EditText(this@LegacyMainActivity).apply {
                 inputType=InputType.TYPE_CLASS_NUMBER; setText(dayStartHour().toString()); setSelectAllOnFocus(false); setTextColor(Color.WHITE); setHintTextColor(muted); hint="6"; backgroundTintList=android.content.res.ColorStateList.valueOf(purple)
                 setOnFocusChangeListener { _, focused -> if (!focused) saveDayStartHour(text.toString()) }
                 setOnEditorActionListener { _, _, _ -> saveDayStartHour(text.toString()); clearFocus(); true }
@@ -464,20 +464,20 @@ class MainActivity : AppCompatActivity() {
             root.addView(card().apply {
                 addView(title("Connect to server").apply { textSize=17f })
                 addView(label("Enter your sync server IP to upload logs and pull from other devices.").apply { setPadding(0,dp(4),0,dp(10)) })
-                val row=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
-                val input=EditText(this@MainActivity).apply { setSingleLine(true); inputType=InputType.TYPE_CLASS_TEXT; setText(syncManager.getServerIp() ?: SyncManager.DEFAULT_SERVER_IP); setTextColor(Color.WHITE); backgroundTintList=android.content.res.ColorStateList.valueOf(purple) }
-                val connect=button("Connect",true).apply { setOnClickListener { isEnabled=false; text="Checking…"; syncManager.checkServer(input.text.toString()) { result -> runOnUiThread { result.fold(onSuccess={ isChangingSyncServer=false; render(Page.SYNC) },onFailure={ isEnabled=true; text="Connect"; Toast.makeText(this@MainActivity,it.message ?: "Connection failed",Toast.LENGTH_LONG).show() }) } } } }
+                val row=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL }
+                val input=EditText(this@LegacyMainActivity).apply { setSingleLine(true); inputType=InputType.TYPE_CLASS_TEXT; setText(syncManager.getServerIp() ?: SyncManager.DEFAULT_SERVER_IP); setTextColor(Color.WHITE); backgroundTintList=android.content.res.ColorStateList.valueOf(purple) }
+                val connect=button("Connect",true).apply { setOnClickListener { isEnabled=false; text="Checking…"; syncManager.checkServer(input.text.toString()) { result -> runOnUiThread { result.fold(onSuccess={ isChangingSyncServer=false; render(Page.SYNC) },onFailure={ isEnabled=true; text="Connect"; Toast.makeText(this@LegacyMainActivity,it.message ?: "Connection failed",Toast.LENGTH_LONG).show() }) } } } }
                 input.setOnEditorActionListener { _,_,_ -> connect.performClick(); true }; row.addView(input,LinearLayout.LayoutParams(0,dp(52),1f)); row.addView(connect,LinearLayout.LayoutParams(dp(98),dp(52)).apply { marginStart=dp(8) }); addView(row)
             })
             return root
         }
         val registered=syncManager.isRegistered(); val active=syncManager.isActive()
         root.addView(card().apply {
-            val head=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL }; head.addView(LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL; addView(label("SERVER").apply { textSize=11f }); addView(TextView(this@MainActivity).apply { text=syncManager.getServerIp(); setTextColor(Color.WHITE); textSize=16f; typeface=Typeface.MONOSPACE }) },LinearLayout.LayoutParams(0,-2,1f)); head.addView(button("Change server").apply { setOnClickListener { isChangingSyncServer=true; render(Page.SYNC) } },LinearLayout.LayoutParams(dp(120),dp(42))); addView(head)
-            if(registered && active) { val syncRow=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(0,dp(14),0,0); addView(LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL; addView(label("NEXT SYNC").apply { textSize=11f }); val countdown=title(formatSyncCountdown(syncManager.secondsUntilNextAutoPush())).apply { textSize=22f }; syncCountdownText=countdown; addView(countdown) },LinearLayout.LayoutParams(0,-2,1f)); addView(button("Sync now",true).apply { setOnClickListener { syncManager.sync { ok,message -> runOnUiThread { Toast.makeText(this@MainActivity,message,Toast.LENGTH_LONG).show(); if(ok) render(Page.SYNC) } } } },LinearLayout.LayoutParams(dp(98),dp(46))) }; addView(syncRow) }
+            val head=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL }; head.addView(LinearLayout(this@LegacyMainActivity).apply { orientation=LinearLayout.VERTICAL; addView(label("SERVER").apply { textSize=11f }); addView(TextView(this@LegacyMainActivity).apply { text=syncManager.getServerIp(); setTextColor(Color.WHITE); textSize=16f; typeface=Typeface.MONOSPACE }) },LinearLayout.LayoutParams(0,-2,1f)); head.addView(button("Change server").apply { setOnClickListener { isChangingSyncServer=true; render(Page.SYNC) } },LinearLayout.LayoutParams(dp(120),dp(42))); addView(head)
+            if(registered && active) { val syncRow=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(0,dp(14),0,0); addView(LinearLayout(this@LegacyMainActivity).apply { orientation=LinearLayout.VERTICAL; addView(label("NEXT SYNC").apply { textSize=11f }); val countdown=title(formatSyncCountdown(syncManager.secondsUntilNextAutoPush())).apply { textSize=22f }; syncCountdownText=countdown; addView(countdown) },LinearLayout.LayoutParams(0,-2,1f)); addView(button("Sync now",true).apply { setOnClickListener { syncManager.sync { ok,message -> runOnUiThread { Toast.makeText(this@LegacyMainActivity,message,Toast.LENGTH_LONG).show(); if(ok) render(Page.SYNC) } } } },LinearLayout.LayoutParams(dp(98),dp(46))) }; addView(syncRow) }
         }); gap(root)
         root.addView(card().apply {
-            val head=LinearLayout(this@MainActivity).apply {
+            val head=LinearLayout(this@LegacyMainActivity).apply {
                 gravity=Gravity.CENTER_VERTICAL
                 addView(title("Local device").apply { textSize=17f },LinearLayout.LayoutParams(0,-2,1f))
                 addView(label(if(active)"Active" else if(registered)"Waiting for approval" else "Unregistered").apply { setTextColor(if(active)Color.rgb(134,239,172) else if(registered)Color.rgb(253,230,138) else Color.rgb(248,113,113)) })
@@ -485,17 +485,17 @@ class MainActivity : AppCompatActivity() {
             addView(head)
             if(!registered) {
                 addView(label("DEVICE NAME").apply { setPadding(0,dp(12),0,dp(4)) })
-                val deviceName=EditText(this@MainActivity).apply { setSingleLine(true); inputType=InputType.TYPE_CLASS_TEXT; setText(syncManager.defaultDeviceName()); setTextColor(Color.WHITE); backgroundTintList=android.content.res.ColorStateList.valueOf(purple) }
+                val deviceName=EditText(this@LegacyMainActivity).apply { setSingleLine(true); inputType=InputType.TYPE_CLASS_TEXT; setText(syncManager.defaultDeviceName()); setTextColor(Color.WHITE); backgroundTintList=android.content.res.ColorStateList.valueOf(purple) }
                 addView(deviceName,LinearLayout.LayoutParams(-1,dp(52)))
-                addView(button("Register this device",true).apply { setOnClickListener { val name=deviceName.text.toString(); AlertDialog.Builder(this@MainActivity).setTitle("Register this device?").setMessage("Registering $name means uploading your logs to the server.").setNegativeButton("Cancel",null).setPositiveButton("Register") { _,_-> syncManager.register(name) { ok,message -> runOnUiThread { Toast.makeText(this@MainActivity,message,Toast.LENGTH_LONG).show(); if(ok) render(Page.SYNC) } } }.show() } },LinearLayout.LayoutParams(-1,dp(48)).apply { topMargin=dp(12) })
+                addView(button("Register this device",true).apply { setOnClickListener { val name=deviceName.text.toString(); AlertDialog.Builder(this@LegacyMainActivity).setTitle("Register this device?").setMessage("Registering $name means uploading your logs to the server.").setNegativeButton("Cancel",null).setPositiveButton("Register") { _,_-> syncManager.register(name) { ok,message -> runOnUiThread { Toast.makeText(this@LegacyMainActivity,message,Toast.LENGTH_LONG).show(); if(ok) render(Page.SYNC) } } }.show() } },LinearLayout.LayoutParams(-1,dp(48)).apply { topMargin=dp(12) })
             }
-            else { addView(label("Local UUID\n${syncManager.getDeviceUuid() ?: "—"}").apply { setPadding(0,dp(10),0,0) }); if(!active) addView(button("Check approval").apply { setOnClickListener { syncManager.checkActivation { ok,message -> runOnUiThread { Toast.makeText(this@MainActivity,message,Toast.LENGTH_LONG).show(); if(ok) render(Page.SYNC) } } } },LinearLayout.LayoutParams(-1,dp(48)).apply { topMargin=dp(12) }) else addView(button("Reupload all logs").apply { setOnClickListener { syncManager.reuploadAllLogs { _,message -> runOnUiThread { Toast.makeText(this@MainActivity,message,Toast.LENGTH_LONG).show() } } } },LinearLayout.LayoutParams(-1,dp(48)).apply { topMargin=dp(12) }) }
+            else { addView(label("Local UUID\n${syncManager.getDeviceUuid() ?: "—"}").apply { setPadding(0,dp(10),0,0) }); if(!active) addView(button("Check approval").apply { setOnClickListener { syncManager.checkActivation { ok,message -> runOnUiThread { Toast.makeText(this@LegacyMainActivity,message,Toast.LENGTH_LONG).show(); if(ok) render(Page.SYNC) } } } },LinearLayout.LayoutParams(-1,dp(48)).apply { topMargin=dp(12) }) else addView(button("Reupload all logs").apply { setOnClickListener { syncManager.reuploadAllLogs { _,message -> runOnUiThread { Toast.makeText(this@LegacyMainActivity,message,Toast.LENGTH_LONG).show() } } } },LinearLayout.LayoutParams(-1,dp(48)).apply { topMargin=dp(12) }) }
         }); gap(root)
         if(active) root.addView(card().apply {
-            val heading=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL; addView(title("Other devices").apply { textSize=17f },LinearLayout.LayoutParams(0,-2,1f)); addView(button("Refresh").apply { setOnClickListener { refreshSyncOtherDevices() } },LinearLayout.LayoutParams(dp(82),dp(40))) }; addView(heading)
+            val heading=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL; addView(title("Other devices").apply { textSize=17f },LinearLayout.LayoutParams(0,-2,1f)); addView(button("Refresh").apply { setOnClickListener { refreshSyncOtherDevices() } },LinearLayout.LayoutParams(dp(82),dp(40))) }; addView(heading)
             addView(label("Device names refresh from the server. Subscriptions are unavailable on mobile.").apply { setPadding(0,dp(4),0,dp(10)) })
             val other=syncOtherDevices?.filter { it.uuid!=syncManager.getDeviceUuid() }
-            when { other==null -> { refreshSyncOtherDevices(); addView(label("Loading devices…")) }; other.isEmpty() -> addView(label("No other active devices on the server yet.")); else -> other.forEach { device -> val row=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(0,dp(6),0,dp(6)); addView(LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL; addView(TextView(this@MainActivity).apply { text=device.name; setTextColor(Color.WHITE); textSize=15f }); addView(label(device.uuid)) },LinearLayout.LayoutParams(0,-2,1f)); addView(button("Subscribe").apply { isEnabled=false; alpha=.5f; contentDescription="Subscriptions unavailable on mobile" },LinearLayout.LayoutParams(dp(98),dp(42))) }; addView(row) } }
+            when { other==null -> { refreshSyncOtherDevices(); addView(label("Loading devices…")) }; other.isEmpty() -> addView(label("No other active devices on the server yet.")); else -> other.forEach { device -> val row=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(0,dp(6),0,dp(6)); addView(LinearLayout(this@LegacyMainActivity).apply { orientation=LinearLayout.VERTICAL; addView(TextView(this@LegacyMainActivity).apply { text=device.name; setTextColor(Color.WHITE); textSize=15f }); addView(label(device.uuid)) },LinearLayout.LayoutParams(0,-2,1f)); addView(button("Subscribe").apply { isEnabled=false; alpha=.5f; contentDescription="Subscriptions unavailable on mobile" },LinearLayout.LayoutParams(dp(98),dp(42))) }; addView(row) } }
         })
         return root
     }
@@ -509,9 +509,9 @@ class MainActivity : AppCompatActivity() {
         addTimeblockField("Min timeblock duration (sec)","min_timeblock_duration",300)
     }
     private fun LinearLayout.addTimeblockField(labelText:String,key:String,default:Int) {
-        val row=LinearLayout(this@MainActivity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(0,dp(7),0,0) }
+        val row=LinearLayout(this@LegacyMainActivity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(0,dp(7),0,0) }
         row.addView(label(labelText,14f),LinearLayout.LayoutParams(0,-2,1f))
-        row.addView(EditText(this@MainActivity).apply { inputType=InputType.TYPE_CLASS_NUMBER; setText(getSharedPreferences("TimeTrackerPrefs",MODE_PRIVATE).getInt(key,default).toString()); setTextColor(Color.WHITE); textSize=14f; setSelectAllOnFocus(false); setOnFocusChangeListener { _,focused -> if(!focused) text.toString().toIntOrNull()?.takeIf { it>=0 }?.let { getSharedPreferences("TimeTrackerPrefs",MODE_PRIVATE).edit().putInt(key,it).apply() } } },LinearLayout.LayoutParams(dp(76),dp(44)))
+        row.addView(EditText(this@LegacyMainActivity).apply { inputType=InputType.TYPE_CLASS_NUMBER; setText(getSharedPreferences("TimeTrackerPrefs",MODE_PRIVATE).getInt(key,default).toString()); setTextColor(Color.WHITE); textSize=14f; setSelectAllOnFocus(false); setOnFocusChangeListener { _,focused -> if(!focused) text.toString().toIntOrNull()?.takeIf { it>=0 }?.let { getSharedPreferences("TimeTrackerPrefs",MODE_PRIVATE).edit().putInt(key,it).apply() } } },LinearLayout.LayoutParams(dp(76),dp(44)))
         addView(row)
     }
     private fun action(text:String,onClick:()->Unit)=button(text).apply { gravity=Gravity.START or Gravity.CENTER_VERTICAL; setOnClickListener { onClick() } }
