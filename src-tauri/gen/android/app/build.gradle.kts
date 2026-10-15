@@ -107,6 +107,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
+    androidTestImplementation("androidx.test:core-ktx:1.5.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
 
 apply(from = file("tauri.build.gradle.kts"))

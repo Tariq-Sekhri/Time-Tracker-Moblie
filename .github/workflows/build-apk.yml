@@ -1,6 +1,7 @@
 name: Build APK
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -13,22 +14,51 @@ jobs:
   build-release-apk:
     name: Build release APK
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Time Tracker Moblie
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          path: Time Tracker Moblie
+
+      - name: Check out shared React UI
+        uses: actions/checkout@v4
+        with:
+          repository: Tariq-Sekhri/time_tracker
+          ref: ${{ vars.REACT_UI_REF || 'master' }}
+          path: time tracker
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+          components: clippy, rustfmt
+
+      - name: Install JavaScript dependencies
+        run: |
+          npm ci
+          npm --prefix "../time tracker" ci
+          npm run check
 
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -49,30 +79,30 @@ jobs:
           RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          APP_VERSION_CODE: ${{ github.run_number }}
-          APP_VERSION_NAME: 1.0.${{ github.run_number }}
         run: |
           if [ -z "$RELEASE_STORE_PASSWORD" ] || [ -z "$RELEASE_KEY_ALIAS" ] || [ -z "$RELEASE_KEY_PASSWORD" ]; then
             echo "Missing one or more signing secrets: ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD"
             exit 1
           fi
-          chmod +x ./gradlew
-          ./gradlew :app:assembleRelease
+          chmod +x src-tauri/gen/android/gradlew
+          node scripts/android.mjs build --target aarch64 --apk
+          npm run android:check
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: time-tracker-release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          path: Time Tracker Moblie/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
           if-no-files-found: error
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG_NAME: apk-${{ github.run_number }}
         run: |
           gh release create "$TAG_NAME" \
-            app/build/outputs/apk/release/app-release.apk \
+            src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
             --target "${{ github.sha }}" \
             --title "APK ${{ github.run_number }}" \
-            --notes "Release APK (versionCode ${{ github.run_number }}) built from ${{ github.sha }}."
+            --notes "Tauri Android APK built from ${{ github.sha }}. Version is defined in src-tauri/tauri.conf.json."

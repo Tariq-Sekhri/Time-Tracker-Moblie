@@ -34,7 +34,12 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
         worker.execute {
             try {
                 when (operation) {
-                    "state" -> host.runOnUiThread { safely(invoke) { state() } }
+                    "state" -> {
+                        val firstLog = db.readableDatabase.rawQuery("SELECT MIN(start_timestamp) FROM logs", null).use {
+                            if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null
+                        }
+                        host.runOnUiThread { safely(invoke) { state(firstLog) } }
+                    }
                     "logs" -> invoke.resolveObject(logs(payload))
                     "usage" -> invoke.resolveObject(usage(payload))
                     "import" -> { UsageLogImporter(context).importNow(); invoke.resolve() }
@@ -104,7 +109,7 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
         } else invoke.reject(message)
     }
 
-    private fun state(): Map<String, Any?> = mapOf(
+    private fun state(firstLogMs: Long?): Map<String, Any?> = mapOf(
         "permissions" to mapOf("usage" to UsageLogImporter.hasUsageAccess(context),
             "browser" to ((Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "")
                 .split(':').any { it.substringBefore('/') == context.packageName }),
@@ -116,9 +121,7 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
         "timer" to ManualTimerSync.timer, "timerStatus" to ManualTimerSync.status.name,
         "projects" to ManualTimerSync.projects,
         "version" to host.packageManager.getPackageInfo(context.packageName, 0).versionName,
-        "firstLogMs" to db.readableDatabase.rawQuery("SELECT MIN(start_timestamp) FROM logs", null).use {
-            if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null
-        })
+        "firstLogMs" to firstLogMs)
 
     private fun saveSettings(payload: JSONObject) {
         val editor = prefs.edit()

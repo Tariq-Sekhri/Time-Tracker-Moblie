@@ -15,6 +15,6 @@ public class ExampleInstrumentedTest {
     @Test
     public void useAppContext() {
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        assertEquals("ca.tariq_sekhri.time_tracker", appContext.getPackageName());
+        assertEquals("ca.tariq_sekhri.time_tracker.dev", appContext.getPackageName());
     }
 }

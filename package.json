@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.5.2",
   "scripts": {
+    "bump": "node scripts/bump.mjs",
     "tauri": "tauri",
     "build:ui": "npm --prefix \"../time tracker\" run build:mobile",
     "check": "npm --prefix \"../time tracker\" run check:mobile",
