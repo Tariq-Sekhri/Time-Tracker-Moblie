@@ -250,19 +250,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun notesView(): View {
-        val prefs=getSharedPreferences("TimeTrackerNotes",MODE_PRIVATE)
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
         val header=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL; setBackgroundColor(Color.rgb(31,41,55)); setPadding(dp(16),dp(8),dp(12),dp(8)) }
         header.addView(title("Notes"),LinearLayout.LayoutParams(0,dp(52),1f))
-        val editor=EditText(this).apply {
-            hint="Write your notes here..."; setHintTextColor(Color.rgb(107,114,128)); setTextColor(Color.WHITE); textSize=16f; gravity=Gravity.TOP or Gravity.START
-            inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES; background=null; setPadding(dp(16),dp(16),dp(16),dp(16)); setText(prefs.getString("notes_content","")); setSelection(text.length)
-            addTextChangedListener(object: TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){}; override fun afterTextChanged(s:Editable?){ prefs.edit().putString("notes_content",s?.toString() ?: "").apply() } })
-        }
-        header.addView(button("Copy").apply { setOnClickListener { copy(editor.text.toString()) } },LinearLayout.LayoutParams(dp(64),dp(42)))
-        header.addView(button("Clear").apply { setOnClickListener { if(editor.text.isNotBlank()) AlertDialog.Builder(this@MainActivity).setTitle("Clear notes?").setMessage("Are you sure you want to clear your notes?").setNegativeButton("Cancel",null).setPositiveButton("Clear") { _,_-> editor.setText("") }.show() } },LinearLayout.LayoutParams(dp(64),dp(42)).apply { marginStart=dp(6) })
+        val editor=NotesEditor(this)
+        header.addView(button("Copy").apply { setOnClickListener { editor.copyNotes() } },LinearLayout.LayoutParams(dp(64),dp(42)))
+        header.addView(button("Clear").apply { setOnClickListener { AlertDialog.Builder(this@MainActivity).setTitle("Clear notes?").setMessage("Are you sure you want to clear your notes?").setNegativeButton("Cancel",null).setPositiveButton("Clear") { _,_-> editor.clearNotes() }.show() } },LinearLayout.LayoutParams(dp(64),dp(42)).apply { marginStart=dp(6) })
         root.addView(header)
-        root.addView(ScrollView(this).apply { isFillViewport=true; addView(editor) },LinearLayout.LayoutParams(-1,0,1f))
+        root.addView(editor,LinearLayout.LayoutParams(-1,0,1f))
         return root
     }
 
@@ -450,7 +445,7 @@ class MainActivity : AppCompatActivity() {
                 text="Enable Notes"; setTextColor(Color.WHITE); textSize=16f; isChecked=notesEnabled()
                 setOnCheckedChangeListener { _,checked -> getSharedPreferences("TimeTrackerPrefs",MODE_PRIVATE).edit().putBoolean("notes_enabled",checked).apply(); render(Page.SETTINGS) }
             })
-            addView(label("Turning this off only hides Notes; your saved notes remain on this device."))
+            addView(label("Turning this off only hides Notes; your saved notes remain and continue syncing."))
         }); gap(root)
         root.addView(card().apply {
             addView(TextView(this@MainActivity).apply { text="Start hour"; setTextColor(Color.WHITE); textSize=16f })

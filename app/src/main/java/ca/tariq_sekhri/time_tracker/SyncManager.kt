@@ -198,7 +198,7 @@ class SyncManager(private val context: Context) {
 
         val allLogs = dbHelper.getAllLogs()
         if (allLogs.isEmpty()) {
-            return onComplete(true, "No logs to upload")
+            return finishNotesSync(ip, token, "Notes synced", onComplete)
         }
 
         val backendLogs = allLogs.map { mapLog(it, deviceUuid) }
@@ -220,7 +220,7 @@ class SyncManager(private val context: Context) {
                         advanceLastPushedLogId(maxId)
                         resetNextAutoPush()
                         val verb = if (reupload) "Re-uploaded" else "Uploaded"
-                        onComplete(true, "$verb ${allLogs.size} logs")
+                        finishNotesSync(ip, token, "$verb ${allLogs.size} logs", onComplete)
                     } else {
                         onComplete(false, syncErrorMessage(response.code, "Upload"))
                     }
@@ -247,7 +247,7 @@ class SyncManager(private val context: Context) {
         val deletedIds = dbHelper.getDeletedLogIds()
 
         if (logs.isEmpty() && deletedIds.isEmpty()) {
-            return onComplete(true, "Nothing to sync")
+            return finishNotesSync(ip, token, "Notes synced", onComplete)
         }
 
         val backendLogs = logs.map { mapLog(it, deviceUuid) }
@@ -275,13 +275,23 @@ class SyncManager(private val context: Context) {
                         val parts = mutableListOf<String>()
                         if (logs.isNotEmpty()) parts.add("pushed ${logs.size} logs")
                         if (deletedIds.isNotEmpty()) parts.add("deleted ${deletedIds.size} on server")
-                        onComplete(true, parts.joinToString(", ").replaceFirstChar { it.uppercase() })
+                        finishNotesSync(ip, token, (parts + "notes synced").joinToString(", ").replaceFirstChar { it.uppercase() }, onComplete)
                     } else {
                         onComplete(false, syncErrorMessage(response.code, "Sync"))
                     }
                 }
             }
         })
+    }
+
+    private fun finishNotesSync(ip: String, token: String, message: String, onComplete: (Boolean, String) -> Unit) {
+        try {
+            NotesStore.sync(context, client, baseUrl(ip), token)
+            resetNextAutoPush()
+            onComplete(true, message)
+        } catch (e: Exception) {
+            onComplete(false, "Notes sync failed: ${e.message}")
+        }
     }
 
     fun pushLogs(onComplete: (Boolean, String) -> Unit) = sync(onComplete)
@@ -298,6 +308,8 @@ class SyncManager(private val context: Context) {
         val token = getDeviceToken()!!
         val statusResult = checkActivationBlocking(ip, token)
         if (!statusResult.successful || !isActive()) return statusResult
+        try { NotesStore.sync(context, client, baseUrl(ip), token) }
+        catch (e: Exception) { return BlockingSyncResult(false, "Notes sync failed: ${e.message}", shouldRetry = true) }
         val deviceUuid = getDeviceUuid()
             ?: return BlockingSyncResult(false, "Registration is incomplete")
         val lastId = prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L)
