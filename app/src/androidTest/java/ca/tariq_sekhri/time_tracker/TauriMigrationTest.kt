@@ -95,6 +95,7 @@ class TauriMigrationTest {
                     "/v1/devices" -> json("""[{"uuid":"qa-device","name":"QA phone"},{"uuid":"qa-desktop","name":"QA desktop"}]""")
                     "/v1/ws" -> MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                         override fun onOpen(webSocket: WebSocket, response: Response) { socket = webSocket; webSocket.send("""{"type":"timer","timer":null}""") }
+                        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
                     })
                     "/v1/manual/projects" -> json("""[{"name":"Migration","color":"#b18bff"}]""")
                     "/v1/manual/timer" -> {
@@ -152,6 +153,7 @@ class TauriMigrationTest {
             assertEquals(7, prefs.getInt("day_start_hour", 0))
         } finally {
             // Keep Tauri's event loop alive until instrumentation ends the process.
+            instrumentation.runOnMainSync { ManualTimerSync.disconnect() }
             server.shutdown(); helper.close()
         }
     }
