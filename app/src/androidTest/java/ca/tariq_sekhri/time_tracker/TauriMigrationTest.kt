@@ -117,7 +117,7 @@ class TauriMigrationTest {
             assertTrue(state.has("permissions")); assertFalse(state.getJSONObject("sync").has("token"))
             val range = JSONObject().put("startMs", now - 180000).put("endMs", now)
             val rows = bridge("logs", range) as JSONArray
-            assertTrue((0 until rows.length()).any { rows.getJSONObject(it).getLong("id") == id })
+            assertTrue("Expected seeded log $id; rows=$rows; state=$state; range=$range", (0 until rows.length()).any { rows.getJSONObject(it).getLong("id") == id })
             val usage = bridge("usage", range) as JSONObject
             assertTrue(usage.getLong("total") >= 60)
             bridge("settings.save", JSONObject().put("day_start_hour", 7))
@@ -147,11 +147,11 @@ class TauriMigrationTest {
             assertEquals(2, (bridge("sync.devices") as JSONArray).length())
             bridge("sync.change")
             assertTrue(context.getSharedPreferences(NotesStore.PREFS, 0).getString(NotesStore.CONTENT, "")!!.contains("Migration QA note"))
-            scenario.recreate()
+            js("location.reload(); true")
             eventually("React did not reopen after recreation") { js("Boolean(document.querySelector('.bottom-nav'))") == "true" }
             assertEquals(7, prefs.getInt("day_start_hour", 0))
         } finally {
-            if (::scenario.isInitialized) scenario.close()
+            // Keep Tauri's event loop alive until instrumentation ends the process.
             server.shutdown(); helper.close()
         }
     }

@@ -155,7 +155,7 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
         val offset = payload.optInt("offset", 0).coerceAtLeast(0)
         val result = mutableListOf<Map<String, Any?>>()
         db.readableDatabase.rawQuery("""SELECT * FROM logs WHERE start_timestamp < ?
-            AND COALESCE(end_timestamp, start_timestamp + duration * 1000) > ?
+            AND COALESCE(end_timestamp, start_timestamp + duration * 1000) > CAST(? AS INTEGER)
             ORDER BY start_timestamp DESC, id DESC LIMIT ? OFFSET ?""", arrayOf(end.toString(), start.toString(), limit.toString(), offset.toString())).use { cursor ->
             while (cursor.moveToNext()) {
                 val row = mutableMapOf<String, Any?>()
@@ -181,7 +181,7 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
         // Iterate the range without sending the full log history across the bridge.
         db.readableDatabase.rawQuery("""SELECT package_name, app_label, start_timestamp,
             COALESCE(end_timestamp, start_timestamp + duration * 1000), duration FROM logs
-            WHERE start_timestamp < ? AND COALESCE(end_timestamp, start_timestamp + duration * 1000) > ?""",
+            WHERE start_timestamp < ? AND COALESCE(end_timestamp, start_timestamp + duration * 1000) > CAST(? AS INTEGER)""",
             arrayOf(end.toString(), start.toString())).use { cursor ->
             while (cursor.moveToNext()) {
                 val pkg = cursor.getString(0)

@@ -36,4 +36,16 @@ if (mode === "check") {
         }
     }
     run(process.execPath, [path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js"), "android", mode || "build", ...args]);
+    if (mode === "build") {
+        const debug = args.includes("--debug");
+        const expectedId = `ca.tariq_sekhri.time_tracker${debug ? ".dev" : ""}`;
+        const variant = debug ? "universalDebug" : "universalRelease";
+        const manifest = path.join(root, "src-tauri", "gen", "android", "app", "build", "intermediates", "merged_manifests", variant, `process${variant[0].toUpperCase()}${variant.slice(1)}Manifest`, "AndroidManifest.xml");
+        const contents = readFileSync(manifest, "utf8");
+        if (!contents.includes(`package="${expectedId}"`)) throw new Error(`Android package isolation check failed: expected ${expectedId}`);
+        for (const service of ["UsageTrackerService", "BrowserTrackerService", "MediaTrackerService"]) {
+            if (!contents.includes(`ca.tariq_sekhri.time_tracker.${service}`)) throw new Error(`Tracking service missing from packaged manifest: ${service}`);
+        }
+        console.log(`Verified Android package ${expectedId} and all three tracking services.`);
+    }
 }

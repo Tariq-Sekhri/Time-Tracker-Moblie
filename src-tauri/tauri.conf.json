@@ -12,11 +12,11 @@
   "app": {
     "windows": [{ "label": "main", "title": "Time Tracker" }],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'self'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'self'"
     }
   },
   "bundle": {
     "active": true,
-    "android": { "minSdkVersion": 33, "versionCode": 9 }
+    "android": { "minSdkVersion": 33, "versionCode": 9, "debugApplicationIdSuffix": ".dev" }
   }
 }
