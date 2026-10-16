@@ -30,8 +30,8 @@ android {
         minSdk = 33
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = (System.getenv("CI_ANDROID_VERSION_CODE") ?: tauriProperties.getProperty("tauri.android.versionCode", "1")).toInt()
+        versionName = System.getenv("CI_ANDROID_VERSION_NAME") ?: tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
     sourceSets {
         getByName("main") {

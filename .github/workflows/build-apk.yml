@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Android release
 
 on:
   workflow_dispatch:
@@ -10,10 +10,18 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: time-tracker-play-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-release-apk:
-    name: Build release APK
+    name: Build signed APK and Play bundle
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version_code: ${{ steps.version.outputs.code }}
+      release_name: ${{ steps.version.outputs.name }}
     defaults:
       run:
         working-directory: Time Tracker Moblie
@@ -27,6 +35,13 @@ jobs:
       - name: Resolve shared React revision
         id: shared_ui
         run: node -e "const fs=require('node:fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'ref='+require('./ui-source.json').ref+'\n')"
+
+      - name: Set unique Android version
+        id: version
+        run: |
+          echo "code=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+          BASE_VERSION=$(node -p 'require("./package.json").version')
+          echo "name=${BASE_VERSION}-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Check out shared React UI
         uses: actions/checkout@v4
@@ -60,6 +75,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
@@ -77,19 +94,21 @@ jobs:
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "${{ github.workspace }}/release.keystore"
 
-      - name: Build release APK
+      - name: Build release APK and bundle
         env:
           RELEASE_STORE_FILE: ${{ github.workspace }}/release.keystore
           RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          CI_ANDROID_VERSION_CODE: ${{ steps.version.outputs.code }}
+          CI_ANDROID_VERSION_NAME: ${{ steps.version.outputs.name }}
         run: |
           if [ -z "$RELEASE_STORE_PASSWORD" ] || [ -z "$RELEASE_KEY_ALIAS" ] || [ -z "$RELEASE_KEY_PASSWORD" ]; then
             echo "Missing one or more signing secrets: ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD"
             exit 1
           fi
           chmod +x src-tauri/gen/android/gradlew
-          node scripts/android.mjs build --target aarch64 --apk
+          node scripts/android.mjs build --target aarch64 --apk --aab
           npm run android:check
 
       - name: Upload release APK
@@ -98,6 +117,14 @@ jobs:
           name: time-tracker-release-apk
           path: Time Tracker Moblie/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
           if-no-files-found: error
+
+      - name: Save signed Play bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: time-tracker-play-bundle
+          path: Time Tracker Moblie/src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Create GitHub release
         env:
@@ -109,4 +136,34 @@ jobs:
             src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
             --target "${{ github.sha }}" \
             --title "APK ${{ github.run_number }}" \
-            --notes "Tauri Android APK built from ${{ github.sha }}. Version is defined in src-tauri/tauri.conf.json."
+            --notes "Tauri Android APK built from ${{ github.sha }}. Version ${{ steps.version.outputs.name }} (${{ steps.version.outputs.code }})."
+
+  publish-play:
+    needs: build-release-apk
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: time-tracker-play-bundle
+          path: play-bundle
+      - id: google-auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: project-33477e16-5086-4c11-933
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+      - name: Publish to Internal testing
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
+          VERSION_CODE: ${{ needs.build-release-apk.outputs.version_code }}
+          RELEASE_NAME: ${{ needs.build-release-apk.outputs.release_name }}
+        run: python3 scripts/publish-play.py ca.tariq_sekhri.time_tracker play-bundle/app-universal-release.aab "$VERSION_CODE" "$RELEASE_NAME"
