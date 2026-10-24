@@ -52,7 +52,7 @@ See [privacy.md](privacy.md) for data handling details.
 Allow notifications on first launch to receive a recap on Monday mornings (9 AM
 local time, subject to Android background scheduling). It summarizes the completed
 Monday–Sunday calendar week of local device usage and compares it with the prior
-week. Tap **View my week** for the daily chart. The recap stays on device, works
+week. Tap **View summary** for the daily chart. The recap stays on device, works
 without sync, and can be disabled through its **Weekly recap** notification channel.
 WorkManager persists the schedule across reboots and a saved week key prevents
 duplicate delivery. New installations start with the next Monday morning.

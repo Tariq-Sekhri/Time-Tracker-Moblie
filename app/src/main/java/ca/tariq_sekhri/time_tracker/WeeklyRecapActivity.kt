@@ -55,8 +55,8 @@ class WeeklyRecapActivity : Activity() {
             setOnClickListener { startActivity(Intent(this@WeeklyRecapActivity, MainActivity::class.java)); finish() }
             setPadding(0, dp(8), 0, dp(12))
         })
-        root.addView(text(if (demo) "WEEKLY RECAP  /  SAMPLE PREVIEW" else "YOUR MONDAY MOMENT", 11f, purple, true).apply { letterSpacing = 0.13f })
-        root.addView(text("Your week,\nwrapped ✨", 32f, ink, true))
+        if (demo) root.addView(text("SAMPLE DATA", 11f, purple, true).apply { letterSpacing = 0.13f })
+        root.addView(text("Weekly summary", 28f, ink, true))
         root.addView(text(recap.dates, 15f, muted).apply { setPadding(0, dp(4), 0, dp(16)) })
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(18), dp(20), dp(18))
@@ -81,9 +81,7 @@ class WeeklyRecapActivity : Activity() {
             column.addView(text(listOf("M", "T", "W", "T", "F", "S", "S")[index], 11f, muted))
         }
         card.addView(chart)
-        root.addView(text(recap.message, 17f, ink, true).apply { setPadding(0, dp(20), 0, dp(10)) })
-        root.addView(text("A little perspective for a fresh start.\nMake room for what matters to you this week.", 14f, muted))
-        root.addView(text("Every Monday morning · On-device & private", 11f, muted).apply { setPadding(0, dp(18), 0, dp(10)) })
+        root.addView(text("Monday mornings · 9:00 AM local time", 11f, muted).apply { setPadding(0, dp(18), 0, dp(10)) })
         root.addView(Button(this).apply {
             text = "Notification settings"; isAllCaps = false; setTextColor(ink)
             backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(43, 45, 60))

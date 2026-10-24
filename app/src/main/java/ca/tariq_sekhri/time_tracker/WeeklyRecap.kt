@@ -37,11 +37,6 @@ data class WeeklyRecap(val window: RecapWindow, val days: List<Long>, val previo
         delta == 0L -> "±0m vs the week before"
         else -> "${if (delta > 0) "+" else "−"}${duration(kotlin.math.abs(delta))} vs the week before"
     }
-    val message get() = when {
-        seconds == 0L -> "A quiet week. A fresh chapter starts today. 🌱"
-        days.all { it > 0 } -> "Seven days, one story. Your week, captured. ✨"
-        else -> "Little moments add up. Here's your week in perspective. ✨"
-    }
     val dates: String get() {
         val format = DateTimeFormatter.ofPattern("MMM d", java.util.Locale.getDefault())
         return "${window.start.format(format)} – ${window.end.minusDays(1).format(format)}"
@@ -105,14 +100,14 @@ object WeeklyRecapNotifications {
         manager.notify(ID, NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_weekly_recap)
             .setColor(android.graphics.Color.rgb(124, 102, 255))
-            .setContentTitle("Your week, wrapped ✨")
+            .setContentTitle("Weekly summary")
             .setContentText("${recap.totalText} last week · ${recap.comparison}")
             .setSubText(if (demo) "Preview · sample data" else recap.dates)
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "${recap.totalText} of device usage last week\n${recap.comparison}\n\n${recap.message}"))
+                "${recap.totalText} of device usage last week\n${recap.comparison}"))
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setContentIntent(pending).setAutoCancel(true)
-            .addAction(0, "View my week", pending).build())
+            .addAction(0, "View summary", pending).build())
         return true
     }
 }
