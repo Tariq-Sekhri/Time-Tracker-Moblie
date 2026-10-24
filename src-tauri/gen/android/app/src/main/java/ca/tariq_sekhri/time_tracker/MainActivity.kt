@@ -19,6 +19,13 @@ class MainActivity : TauriActivity() {
       insets
     }
     UsageSyncScheduler.schedule(applicationContext)
+    WeeklyRecapWorker.schedule(applicationContext)
+    val recapPrefs = getSharedPreferences("WeeklyRecap", MODE_PRIVATE)
+    if (!recapPrefs.getBoolean("permissionAsked", false) &&
+        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+      recapPrefs.edit().putBoolean("permissionAsked", true).apply()
+      requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7301)
+    }
   }
   override fun onResume() {
     super.onResume()

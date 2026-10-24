@@ -46,3 +46,25 @@ Android, npm and Cargo versions together; update the changelog before releasing.
 See [migration notes](docs/tauri-migration.md) for architecture and validation.
 
 See [privacy.md](privacy.md) for data handling details.
+
+## Weekly recap
+
+Allow notifications on first launch to receive a recap on Monday mornings (9 AM
+local time, subject to Android background scheduling). It summarizes the completed
+Monday–Sunday calendar week of local device usage and compares it with the prior
+week. Tap **View my week** for the daily chart. The recap stays on device, works
+without sync, and can be disabled through its **Weekly recap** notification channel.
+WorkManager persists the schedule across reboots and a saved week key prevents
+duplicate delivery. New installations start with the next Monday morning.
+
+Emulator preview, after installing a debug APK and granting notification permission:
+
+```powershell
+# Run from src-tauri/gen/android; build the instrumentation APK first.
+./gradlew :app:assembleUniversalDebugAndroidTest
+adb install -r app/build/outputs/apk/androidTest/universal/debug/app-universal-debug-androidTest.apk
+adb shell am instrument -w -e class ca.tariq_sekhri.time_tracker.WeeklyRecapDemoTest#previewNotification ca.tariq_sekhri.time_tracker.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The preview is labeled **sample data** and does not alter usage history or the
+weekly delivery marker. Release recaps always read real local usage data.
