@@ -1,5 +1,6 @@
 package ca.tariq_sekhri.time_tracker
 
+import androidx.appcompat.app.AppCompatDelegate
 import android.os.Bundle
 import android.content.Intent
 import android.graphics.Color
@@ -10,6 +11,7 @@ import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
+    AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
     super.onCreate(savedInstanceState)
     window.decorView.setBackgroundColor(Color.rgb(17, 19, 24))
     ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
