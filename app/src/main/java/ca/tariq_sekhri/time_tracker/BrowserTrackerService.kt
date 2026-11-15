@@ -217,7 +217,7 @@ class BrowserTrackerService : AccessibilityService() {
             appLabel = formattedLabel,
             startEventType = "BROWSER_URL_CHANGED"
         )
-        currentSessionId = dbHelper.insertLog(metadata, now)
+        currentSessionId = RunningLogs.begin { dbHelper.insertLog(metadata, now) }
         currentFormattedLabel = formattedLabel
         currentPackage = packageName
         sessionStartMs = now
@@ -238,6 +238,7 @@ class BrowserTrackerService : AccessibilityService() {
         } else {
             dbHelper.endLog(id, now, reason)
         }
+        RunningLogs.finish(id)
 
         currentSessionId = null
         currentFormattedLabel = null

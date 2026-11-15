@@ -20,6 +20,7 @@ class UsageTrackerService : Service() {
     private lateinit var metadata: AppMetadataHelper
     private lateinit var categories: CategoryManager
     private lateinit var usageStats: UsageStatsManager
+    private lateinit var minuteSync: MinuteSync
     private val handler = Handler(Looper.getMainLooper())
     private var tracking = false
     private var foregroundEntry: RichLogMetadata? = null
@@ -44,6 +45,8 @@ class UsageTrackerService : Service() {
         usageStats = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         createChannel()
         MediaUsagePriority.addListener(mediaListener)
+        minuteSync = MinuteSync(this)
+        minuteSync.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -92,7 +95,7 @@ class UsageTrackerService : Service() {
         if (MediaUsagePriority.activeStart(entry.packageName) != null) return
         val target = "${entry.packageName} ${entry.appLabel}"
         if (db.getSkippedApps().any { row -> row.pattern.isNotBlank() && (target.contains(row.pattern, true) || runCatching { Regex(row.pattern, RegexOption.IGNORE_CASE).containsMatchIn(target) }.getOrDefault(false)) }) return
-        activeLogId = db.insertLog(entry, startedAt, categories.resolveCategory(entry.packageName, entry.appLabel))
+        activeLogId = RunningLogs.begin { db.insertLog(entry, startedAt, categories.resolveCategory(entry.packageName, entry.appLabel)) }
         activeStartMs = startedAt
     }
 
@@ -100,11 +103,13 @@ class UsageTrackerService : Service() {
         if (activeLogId != -1L) {
             if (endedAt - activeStartMs < 1_000L) db.deleteLog(activeLogId)
             else db.endLog(activeLogId, endedAt, reason)
+            RunningLogs.finish(activeLogId)
         }
         activeLogId = -1L
     }
     override fun onDestroy() {
         tracking = false
+        minuteSync.stop()
         handler.removeCallbacks(ticker)
         MediaUsagePriority.removeListener(mediaListener)
         finishActive(System.currentTimeMillis(), "SERVICE_STOPPED")

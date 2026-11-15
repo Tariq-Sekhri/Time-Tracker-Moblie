@@ -1,7 +1,7 @@
 {
   "name": "time-tracker-mobile",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.5.4",
   "scripts": {
     "bump": "node scripts/bump.mjs",
     "tauri": "tauri",

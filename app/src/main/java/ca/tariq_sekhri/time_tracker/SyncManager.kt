@@ -48,10 +48,10 @@ class SyncManager(private val context: Context) {
         prefs.edit().putString(PREF_SERVER_IP, normalizeServerIp(ip)).apply()
     }
 
-    fun resetNextAutoPush() {
+    fun resetNextAutoPush(inSeconds: Int = AUTO_PUSH_INTERVAL_SECONDS) {
         if (!isConfigured()) return
         prefs.edit()
-            .putLong(PREF_NEXT_AUTO_PUSH_AT_MS, System.currentTimeMillis() + AUTO_PUSH_INTERVAL_SECONDS * 1000L)
+            .putLong(PREF_NEXT_AUTO_PUSH_AT_MS, System.currentTimeMillis() + inSeconds * 1000L)
             .apply()
     }
 
@@ -196,37 +196,27 @@ class SyncManager(private val context: Context) {
         val token = getDeviceToken() ?: return onComplete(false, "Not registered")
         val deviceUuid = getDeviceUuid() ?: return onComplete(false, "Not registered")
 
-        val allLogs = dbHelper.getAllLogs()
-        if (allLogs.isEmpty()) {
-            return finishNotesSync(ip, token, "Notes synced", onComplete)
-        }
-
-        val backendLogs = allLogs.map { mapLog(it, deviceUuid) }
-        val payload = UploadPayload(token, backendLogs)
-        val url = baseUrl(ip) + "/v1/upload_all_logs"
-        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
-        val request = Request.Builder().url(url).post(body).build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                onComplete(false, "Upload failed: ${e.message}")
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (response.isSuccessful) {
-                        setActive(true)
-                        val maxId = allLogs.maxOf { it.id }
-                        advanceLastPushedLogId(maxId)
-                        resetNextAutoPush()
-                        val verb = if (reupload) "Re-uploaded" else "Uploaded"
-                        finishNotesSync(ip, token, "$verb ${allLogs.size} logs", onComplete)
-                    } else {
-                        onComplete(false, syncErrorMessage(response.code, "Upload"))
-                    }
+        var uploaded = 0
+        val failure: String? = synchronized(uploadLock) {
+            val logs = RunningLogs.finished { dbHelper.getAllLogs() }
+            if (logs.isEmpty()) return@synchronized null
+            val request = jsonPost(ip, "/v1/upload_all_logs", UploadPayload(token, logs.map { mapLog(it, deviceUuid) }))
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@synchronized syncErrorMessage(response.code, "Upload")
                 }
+            } catch (e: IOException) {
+                return@synchronized "Upload failed: ${e.message}"
             }
-        })
+            setActive(true)
+            advanceLastPushedLogId(logs.maxOf { it.id })
+            resetNextAutoPush()
+            uploaded = logs.size
+            null
+        }
+        if (failure != null) return onComplete(false, failure)
+        if (uploaded == 0) return finishNotesSync(ip, token, "Notes synced", onComplete)
+        finishNotesSync(ip, token, "${if (reupload) "Re-uploaded" else "Uploaded"} $uploaded logs", onComplete)
     }
 
     fun sync(onComplete: (Boolean, String) -> Unit) {
@@ -242,47 +232,59 @@ class SyncManager(private val context: Context) {
         val token = getDeviceToken()!!
         val deviceUuid = getDeviceUuid()!!
 
-        val lastId = prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L)
-        val logs = dbHelper.getLogsAfter(lastId)
-        val deletedIds = dbHelper.getDeletedLogIds()
-
-        if (logs.isEmpty() && deletedIds.isEmpty()) {
-            return finishNotesSync(ip, token, "Notes synced", onComplete)
-        }
-
-        val backendLogs = logs.map { mapLog(it, deviceUuid) }
-        val payload = SyncPayload(token, backendLogs, deletedIds)
-        val url = baseUrl(ip) + "/v1/sync"
-        val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
-        val request = Request.Builder().url(url).post(body).build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                onComplete(false, "Sync failed: ${e.message}")
+        when (val result = uploadChanges(ip, token, deviceUuid)) {
+            is UploadResult.Failed -> onComplete(false, result.message)
+            UploadResult.NothingToSend -> finishNotesSync(ip, token, "Notes synced", onComplete)
+            is UploadResult.Sent -> {
+                val parts = mutableListOf<String>()
+                if (result.logs > 0) parts.add("pushed ${result.logs} logs")
+                if (result.deleted > 0) parts.add("deleted ${result.deleted} on server")
+                finishNotesSync(ip, token, (parts + "notes synced").joinToString(", ").replaceFirstChar { it.uppercase() }, onComplete)
             }
+        }
+    }
 
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (response.isSuccessful) {
-                        setActive(true)
-                        if (logs.isNotEmpty()) {
-                            advanceLastPushedLogId(logs.maxOf { it.id })
-                        }
-                        if (deletedIds.isNotEmpty()) {
-                            dbHelper.clearDeletedLogs(deletedIds)
-                        }
-                        resetNextAutoPush()
-                        val parts = mutableListOf<String>()
-                        if (logs.isNotEmpty()) parts.add("pushed ${logs.size} logs")
-                        if (deletedIds.isNotEmpty()) parts.add("deleted ${deletedIds.size} on server")
-                        finishNotesSync(ip, token, (parts + "notes synced").joinToString(", ").replaceFirstChar { it.uppercase() }, onComplete)
-                    } else {
-                        onComplete(false, syncErrorMessage(response.code, "Sync"))
-                    }
+    private sealed class UploadResult {
+        object NothingToSend : UploadResult()
+        data class Sent(val logs: Int, val deleted: Int) : UploadResult()
+        data class Failed(val message: String, val retry: Boolean) : UploadResult()
+    }
+
+    /** True when a sync would send finished logs or deletions to the server. Reads the database only. */
+    fun hasChangesToUpload(): Boolean =
+        isConfigured() && (finishedLogsToUpload().isNotEmpty() || dbHelper.getDeletedLogIds().isNotEmpty())
+
+    private fun finishedLogsToUpload(): List<LogEntry> =
+        RunningLogs.finished { dbHelper.getLogsAfter(prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L)) }
+
+    /** Uploads finished logs and deletions. Blocks on the network. */
+    private fun uploadChanges(ip: String, token: String, deviceUuid: String): UploadResult = synchronized(uploadLock) {
+        val logs = finishedLogsToUpload()
+        val deletedIds = dbHelper.getDeletedLogIds()
+        if (logs.isEmpty() && deletedIds.isEmpty()) return@synchronized UploadResult.NothingToSend
+
+        val request = jsonPost(ip, "/v1/sync", SyncPayload(token, logs.map { mapLog(it, deviceUuid) }, deletedIds))
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val retry = response.code >= 500 || response.code == 408 || response.code == 429
+                    return@synchronized UploadResult.Failed(syncErrorMessage(response.code, "Sync"), retry)
                 }
             }
-        })
+        } catch (e: IOException) {
+            return@synchronized UploadResult.Failed("Sync failed: ${e.message}", true)
+        }
+        setActive(true)
+        if (logs.isNotEmpty()) advanceLastPushedLogId(logs.maxOf { it.id })
+        if (deletedIds.isNotEmpty()) dbHelper.clearDeletedLogs(deletedIds)
+        resetNextAutoPush()
+        UploadResult.Sent(logs.size, deletedIds.size)
     }
+
+    private fun jsonPost(ip: String, path: String, payload: Any): Request = Request.Builder()
+        .url(baseUrl(ip) + path)
+        .post(gson.toJson(payload).toRequestBody("application/json".toMediaType()))
+        .build()
 
     private fun finishNotesSync(ip: String, token: String, message: String, onComplete: (Boolean, String) -> Unit) {
         try { ManualTimerStore.sync(context, client, baseUrl(ip), token) }
@@ -316,44 +318,10 @@ class SyncManager(private val context: Context) {
         catch (e: Exception) { return BlockingSyncResult(false, "Notes sync failed: ${e.message}", shouldRetry = true) }
         val deviceUuid = getDeviceUuid()
             ?: return BlockingSyncResult(false, "Registration is incomplete")
-        val lastId = prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L)
-        val logs = dbHelper.getLogsAfter(lastId)
-        val deletedIds = dbHelper.getDeletedLogIds()
-        if (logs.isEmpty() && deletedIds.isEmpty()) {
-            return BlockingSyncResult(true, "Nothing to sync")
-        }
-
-        val payload = SyncPayload(
-            token,
-            logs.map { mapLog(it, deviceUuid) },
-            deletedIds
-        )
-        val request = Request.Builder()
-            .url(baseUrl(ip) + "/v1/sync")
-            .post(gson.toJson(payload).toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return try {
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    setActive(true)
-                    if (logs.isNotEmpty()) {
-                        advanceLastPushedLogId(logs.maxOf { it.id })
-                    }
-                    if (deletedIds.isNotEmpty()) dbHelper.clearDeletedLogs(deletedIds)
-                    resetNextAutoPush()
-                    BlockingSyncResult(true, "Synced")
-                } else {
-                    val message = syncErrorMessage(response.code, "Sync")
-                    BlockingSyncResult(
-                        false,
-                        message,
-                        response.code >= 500 || response.code == 408 || response.code == 429
-                    )
-                }
-            }
-        } catch (e: IOException) {
-            BlockingSyncResult(false, "Sync failed: ${e.message}", true)
+        return when (val result = uploadChanges(ip, token, deviceUuid)) {
+            is UploadResult.Failed -> BlockingSyncResult(false, result.message, result.retry)
+            UploadResult.NothingToSend -> BlockingSyncResult(true, "Nothing to sync")
+            is UploadResult.Sent -> BlockingSyncResult(true, "Synced")
         }
     }
 
@@ -499,7 +467,7 @@ class SyncManager(private val context: Context) {
 
     companion object {
         const val DEFAULT_SERVER_IP = "100.75.95.90"
-        const val AUTO_PUSH_INTERVAL_SECONDS = 300
+        const val AUTO_PUSH_INTERVAL_SECONDS = 60
         const val EXPECTED_CHECK_RESPONSE = "Time Tracker Backend v1"
         private const val PREF_SERVER_IP = "server_ip"
         private const val PREF_DEVICE_UUID = "device_uuid"
@@ -507,5 +475,7 @@ class SyncManager(private val context: Context) {
         private const val PREF_DEVICE_ACTIVE = "device_active"
         private const val PREF_LAST_PUSHED_LOG_ID = "last_pushed_log_id"
         private const val PREF_NEXT_AUTO_PUSH_AT_MS = "next_auto_push_at_ms"
+        /** One upload at a time, so two syncs never send the same logs or race on the cursor. */
+        private val uploadLock = Any()
     }
 }

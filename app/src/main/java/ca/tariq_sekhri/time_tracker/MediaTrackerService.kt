@@ -267,7 +267,7 @@ class MediaTrackerService : NotificationListenerService() {
                     startEventType = "MEDIA_PLAYING"
                 )
                 val category = categoryManager.resolveCategory(packageName, formattedName)
-                val id = dbHelper.insertLog(richMeta, now, category)
+                val id = RunningLogs.begin { dbHelper.insertLog(richMeta, now, category) }
                 
                 activeLogs[packageName] = id
                 activeStartTimes[packageName] = now
@@ -317,6 +317,7 @@ class MediaTrackerService : NotificationListenerService() {
         } else {
             dbHelper.endLog(id, now, reason)
         }
+        RunningLogs.finish(id)
         if (!keepPlaying) MediaUsagePriority.setPlaying(packageName, false, now)
 
         if (activeLogs.isEmpty()) {
