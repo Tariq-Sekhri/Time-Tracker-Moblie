@@ -1,11 +1,16 @@
 package ca.tariq_sekhri.time_tracker
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
+import app.tauri.PermissionState
 import app.tauri.annotation.Command
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.Plugin
@@ -13,12 +18,13 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /** The only bridge exposed to the bundled React UI. Credentials stay in Kotlin. */
-@TauriPlugin
+@TauriPlugin(permissions = [Permission(alias = "calendar", strings = [Manifest.permission.READ_CALENDAR])])
 class TrackerPlugin(private val host: Activity) : Plugin(host) {
     private val context = host.applicationContext
     private val db by lazy { DatabaseHelper(context) }
     private val sync by lazy { SyncManager(context) }
     private val prefs by lazy { context.getSharedPreferences("TimeTrackerPrefs", Context.MODE_PRIVATE) }
+    private val googleCalendar by lazy { GoogleCalendarImport(context, prefs) }
     private val worker = Executors.newSingleThreadExecutor()
     private val labels = mutableMapOf<String, String>()
     private val integerSettings = mapOf("day_start_hour" to 6, "min_app_duration" to 0,
@@ -43,6 +49,28 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
                     }
                     "logs" -> invoke.resolveObject(logs(payload))
                     "usage" -> invoke.resolveObject(usage(payload))
+                    "calendar.permission" -> host.runOnUiThread {
+                        try {
+                            when (getPermissionState("calendar")) {
+                                PermissionState.GRANTED -> invoke.resolve()
+                                PermissionState.DENIED -> {
+                                    val appUri = Uri.fromParts("package", context.packageName, null)
+                                    host.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, appUri))
+                                    invoke.resolve()
+                                }
+                                else -> requestPermissionForAlias("calendar", invoke, "calendarPermissionResult")
+                            }
+                        } catch (error: Exception) { invoke.reject(error.message ?: "Could not request calendar access") }
+                    }
+                    "calendar.sources" -> invoke.resolveObject(googleCalendar.sources())
+                    "calendar.select" -> {
+                        googleCalendar.select(payload.getString("key"), payload.getBoolean("selected"))
+                        invoke.resolve()
+                    }
+                    "calendar.events" -> {
+                        val (start, end) = range(payload)
+                        invoke.resolveObject(googleCalendar.events(start, end, payload.getString("firstDay"), payload.getString("endDay")))
+                    }
                     "import" -> { UsageLogImporter(context).importNow(); invoke.resolve() }
                     "permission" -> host.runOnUiThread {
                         safely(invoke) {
@@ -128,6 +156,11 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
         }
     }
 
+    @PermissionCallback
+    fun calendarPermissionResult(invoke: Invoke) {
+        invoke.resolve()
+    }
+
     private fun safely(invoke: Invoke, block: () -> Any?) {
         try { block()?.let { invoke.resolveObject(it) } ?: invoke.resolve() }
         catch (error: Exception) { invoke.reject(error.message ?: "Operation failed") }
@@ -159,6 +192,7 @@ class TrackerPlugin(private val host: Activity) : Plugin(host) {
             "media" to NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)),
         "settings" to (integerSettings.mapValues { (key, default) -> prefs.getInt(key, default) } +
             mapOf("notes_enabled" to prefs.getBoolean("notes_enabled", true), "use_bar_usage_chart" to prefs.getBoolean("use_bar_usage_chart", false))),
+        "googleCalendar" to mapOf("allowed" to googleCalendar.allowed(), "selected" to googleCalendar.selected().sorted()),
         "sync" to mapOf("server" to sync.getServerIp(), "registered" to sync.isRegistered(), "active" to sync.isActive(),
             "uuid" to sync.getDeviceUuid(), "name" to sync.getLocalDeviceName(), "nextSyncSeconds" to sync.secondsUntilNextAutoPush()),
         "devices" to devices,
