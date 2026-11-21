@@ -9,13 +9,15 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     companion object {
         private const val DATABASE_NAME = "time_tracker.db"
-        private const val DATABASE_VERSION = 11
+        private const val DATABASE_VERSION = 12
 
         const val TABLE_LOGS = "logs"
         const val TABLE_SKIPPED_APPS = "skipped_apps"
         const val TABLE_CATEGORIES = "categories"
         const val TABLE_REGEX = "category_regex"
         const val TABLE_DELETED_LOGS = "deleted_logs"
+        const val TABLE_REMOTE_DEVICES = "remote_devices"
+        const val TABLE_REMOTE_LOGS = "remote_logs"
 
         const val COLUMN_ID = "id"
         const val COLUMN_PACKAGE_NAME = "package_name"
@@ -113,7 +115,34 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             )
         """.trimIndent())
 
+        createRemoteTables(db)
         insertDefaultCategories(db)
+    }
+
+    private fun createRemoteTables(db: SQLiteDatabase?) {
+        db?.execSQL("""
+            CREATE TABLE IF NOT EXISTS $TABLE_REMOTE_DEVICES (
+                uuid TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                is_tracking INTEGER NOT NULL DEFAULT 0,
+                last_sync_id INTEGER NOT NULL DEFAULT 0,
+                in_cal INTEGER NOT NULL DEFAULT 1,
+                in_stats INTEGER NOT NULL DEFAULT 1
+            )
+        """.trimIndent())
+        db?.execSQL("""
+            CREATE TABLE IF NOT EXISTS $TABLE_REMOTE_LOGS (
+                device_uuid TEXT NOT NULL,
+                id INTEGER NOT NULL,
+                app TEXT NOT NULL,
+                start_timestamp INTEGER NOT NULL,
+                end_timestamp INTEGER NOT NULL,
+                duration INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (device_uuid, id)
+            )
+        """.trimIndent())
+        db?.execSQL("CREATE INDEX IF NOT EXISTS idx_remote_logs_time ON $TABLE_REMOTE_LOGS(start_timestamp, end_timestamp)")
+        db?.execSQL("CREATE INDEX IF NOT EXISTS idx_remote_logs_device ON $TABLE_REMOTE_LOGS(device_uuid, start_timestamp)")
     }
 
     private fun insertDefaultSkippedApps(db: SQLiteDatabase?) {
@@ -170,6 +199,9 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         }
         if (oldVersion < 11) {
             db?.execSQL("CREATE TABLE IF NOT EXISTS $TABLE_DELETED_LOGS ($COLUMN_ID INTEGER PRIMARY KEY)")
+        }
+        if (oldVersion < 12) {
+            createRemoteTables(db)
         }
     }
 
@@ -372,6 +404,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         db.delete(TABLE_CATEGORIES, null, null)
         db.delete(TABLE_REGEX, null, null)
         db.delete(TABLE_DELETED_LOGS, null, null)
+        db.delete(TABLE_REMOTE_LOGS, null, null)
+        db.delete(TABLE_REMOTE_DEVICES, null, null)
         insertDefaultCategories(db)
         insertDefaultSkippedApps(db)
     }
@@ -502,7 +536,253 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             endEventType = optS(COLUMN_END_EVENT_TYPE)
         )
     }
+
+    fun upsertRemoteDevicesFromServer(serverDevices: List<Pair<String, String>>, localUuid: String?) {
+        val remote = serverDevices.filter { it.first != localUuid }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for ((uuid, name) in remote) {
+                db.execSQL(
+                    "INSERT OR IGNORE INTO $TABLE_REMOTE_DEVICES (uuid, name, is_tracking, last_sync_id, in_cal, in_stats) VALUES (?, ?, 0, 0, 1, 1)",
+                    arrayOf<Any>(uuid, name)
+                )
+                db.execSQL(
+                    "UPDATE $TABLE_REMOTE_DEVICES SET name = ? WHERE uuid = ?",
+                    arrayOf<Any>(name, uuid)
+                )
+            }
+            if (remote.isEmpty()) {
+                db.execSQL("UPDATE $TABLE_REMOTE_DEVICES SET is_tracking = 0")
+            } else {
+                val placeholders = remote.joinToString(",") { "?" }
+                db.execSQL(
+                    "UPDATE $TABLE_REMOTE_DEVICES SET is_tracking = 0 WHERE uuid NOT IN ($placeholders)",
+                    remote.map { it.first }.toTypedArray()
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun getRemoteDevices(): List<RemoteDeviceRow> {
+        val list = mutableListOf<RemoteDeviceRow>()
+        readableDatabase.rawQuery(
+            """SELECT d.uuid, d.name, d.is_tracking, d.last_sync_id, d.in_cal, d.in_stats,
+                      EXISTS(SELECT 1 FROM $TABLE_REMOTE_LOGS rl WHERE rl.device_uuid = d.uuid) AS has_local_logs
+               FROM $TABLE_REMOTE_DEVICES d
+               ORDER BY d.name COLLATE NOCASE ASC, d.uuid ASC""",
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                list.add(
+                    RemoteDeviceRow(
+                        uuid = cursor.getString(0),
+                        name = cursor.getString(1),
+                        isTracking = cursor.getInt(2) != 0,
+                        lastSyncId = cursor.getLong(3),
+                        inCal = cursor.getInt(4) != 0,
+                        inStats = cursor.getInt(5) != 0,
+                        hasLocalLogs = cursor.getInt(6) != 0
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun getTrackedRemoteDevices(deviceUuid: String? = null): List<RemoteDeviceRow> {
+        val list = mutableListOf<RemoteDeviceRow>()
+        val where = if (deviceUuid != null) "WHERE d.is_tracking = 1 AND d.uuid = ?" else "WHERE d.is_tracking = 1"
+        val args = if (deviceUuid != null) arrayOf(deviceUuid) else null
+        readableDatabase.rawQuery(
+            """SELECT d.uuid, d.name, d.is_tracking, d.last_sync_id, d.in_cal, d.in_stats,
+                      EXISTS(SELECT 1 FROM $TABLE_REMOTE_LOGS rl WHERE rl.device_uuid = d.uuid) AS has_local_logs
+               FROM $TABLE_REMOTE_DEVICES d
+               $where
+               ORDER BY d.name COLLATE NOCASE ASC, d.uuid ASC""",
+            args
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                list.add(
+                    RemoteDeviceRow(
+                        uuid = cursor.getString(0),
+                        name = cursor.getString(1),
+                        isTracking = cursor.getInt(2) != 0,
+                        lastSyncId = cursor.getLong(3),
+                        inCal = cursor.getInt(4) != 0,
+                        inStats = cursor.getInt(5) != 0,
+                        hasLocalLogs = cursor.getInt(6) != 0
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun isRemoteDeviceTracked(uuid: String): Boolean {
+        readableDatabase.rawQuery(
+            "SELECT is_tracking FROM $TABLE_REMOTE_DEVICES WHERE uuid = ? LIMIT 1",
+            arrayOf(uuid)
+        ).use { cursor ->
+            return cursor.moveToFirst() && cursor.getInt(0) != 0
+        }
+    }
+
+    fun setRemoteDeviceTracking(uuid: String, name: String?, tracking: Boolean) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            if (!name.isNullOrBlank()) {
+                db.execSQL(
+                    "INSERT OR IGNORE INTO $TABLE_REMOTE_DEVICES (uuid, name, is_tracking, last_sync_id, in_cal, in_stats) VALUES (?, ?, 0, 0, 1, 1)",
+                    arrayOf<Any>(uuid, name)
+                )
+            }
+            if (tracking) {
+                db.execSQL(
+                    "UPDATE $TABLE_REMOTE_DEVICES SET is_tracking = 1, in_cal = 1, in_stats = 1 WHERE uuid = ?",
+                    arrayOf<Any>(uuid)
+                )
+            } else {
+                db.execSQL(
+                    "UPDATE $TABLE_REMOTE_DEVICES SET is_tracking = 0 WHERE uuid = ?",
+                    arrayOf<Any>(uuid)
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun updateRemoteDeviceVisibility(uuid: String, inCal: Boolean?, inStats: Boolean?) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            if (inCal != null) {
+                db.execSQL(
+                    "UPDATE $TABLE_REMOTE_DEVICES SET in_cal = ? WHERE uuid = ?",
+                    arrayOf<Any>(if (inCal) 1 else 0, uuid)
+                )
+            }
+            if (inStats != null) {
+                db.execSQL(
+                    "UPDATE $TABLE_REMOTE_DEVICES SET in_stats = ? WHERE uuid = ?",
+                    arrayOf<Any>(if (inStats) 1 else 0, uuid)
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun unsubscribeRemoteDevice(uuid: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(TABLE_REMOTE_LOGS, "device_uuid = ?", arrayOf(uuid))
+            db.execSQL(
+                "UPDATE $TABLE_REMOTE_DEVICES SET is_tracking = 0, last_sync_id = 0, in_cal = 0, in_stats = 0 WHERE uuid = ?",
+                arrayOf<Any>(uuid)
+            )
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun untrackAllRemoteDevices() {
+        writableDatabase.execSQL("UPDATE $TABLE_REMOTE_DEVICES SET is_tracking = 0")
+    }
+
+    fun insertRemoteLogsBatch(logs: List<RemoteLogRow>): Int {
+        if (logs.isEmpty()) return 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val stmt = db.compileStatement(
+                "INSERT OR REPLACE INTO $TABLE_REMOTE_LOGS (device_uuid, id, app, start_timestamp, end_timestamp, duration) VALUES (?, ?, ?, ?, ?, ?)"
+            )
+            try {
+                for (row in logs) {
+                    stmt.clearBindings()
+                    stmt.bindString(1, row.deviceUuid)
+                    stmt.bindLong(2, row.id)
+                    stmt.bindString(3, row.app)
+                    stmt.bindLong(4, row.startTimestamp)
+                    stmt.bindLong(5, row.endTimestamp)
+                    stmt.bindLong(6, row.duration)
+                    stmt.executeInsert()
+                }
+            } finally {
+                stmt.close()
+            }
+            db.setTransactionSuccessful()
+            return logs.size
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun advanceRemoteDeviceSyncId(uuid: String, newLastSyncId: Long) {
+        writableDatabase.execSQL(
+            "UPDATE $TABLE_REMOTE_DEVICES SET last_sync_id = MAX(last_sync_id, ?) WHERE uuid = ?",
+            arrayOf<Any>(newLastSyncId, uuid)
+        )
+    }
+
+    fun deleteRemoteLog(deviceUuid: String, id: Long) {
+        writableDatabase.delete(TABLE_REMOTE_LOGS, "device_uuid = ? AND id = ?", arrayOf(deviceUuid, id.toString()))
+    }
+
+    fun earliestLogTimestampMs(includeLocal: Boolean, remoteDeviceUuids: List<String>): Long? {
+        var earliest: Long? = null
+        if (includeLocal) {
+            readableDatabase.rawQuery("SELECT MIN($COLUMN_START_TIMESTAMP) FROM $TABLE_LOGS", null).use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) {
+                    val value = cursor.getLong(0)
+                    earliest = earliest?.let { minOf(it, value) } ?: value
+                }
+            }
+        }
+        if (remoteDeviceUuids.isNotEmpty()) {
+            val placeholders = remoteDeviceUuids.joinToString(",") { "?" }
+            readableDatabase.rawQuery(
+                "SELECT MIN(start_timestamp) FROM $TABLE_REMOTE_LOGS WHERE device_uuid IN ($placeholders)",
+                remoteDeviceUuids.toTypedArray()
+            ).use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) {
+                    val value = cursor.getLong(0)
+                    earliest = earliest?.let { minOf(it, value) } ?: value
+                }
+            }
+        }
+        return earliest
+    }
 }
+
+data class RemoteDeviceRow(
+    val uuid: String,
+    val name: String,
+    val isTracking: Boolean,
+    val lastSyncId: Long,
+    val inCal: Boolean,
+    val inStats: Boolean,
+    val hasLocalLogs: Boolean = false
+)
+
+data class RemoteLogRow(
+    val deviceUuid: String,
+    val id: Long,
+    val app: String,
+    val startTimestamp: Long,
+    val endTimestamp: Long,
+    val duration: Long
+)
 
 data class LogEntry(
     val id: Long, val packageName: String, val appLabel: String?, val activityClass: String?,

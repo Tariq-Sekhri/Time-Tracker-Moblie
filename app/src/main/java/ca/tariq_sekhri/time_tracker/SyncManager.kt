@@ -4,16 +4,18 @@ import android.content.Context
 import android.os.Build
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.google.gson.stream.JsonReader
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 class SyncManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("TimeTrackerPrefs", Context.MODE_PRIVATE)
     private val dbHelper = DatabaseHelper(context)
-    private val client = OkHttpClient()
+    private val client get() = sharedClient
     private val gson = Gson()
 
     fun hasServerIp(): Boolean = !getServerIp().isNullOrBlank()
@@ -39,9 +41,13 @@ class SyncManager(private val context: Context) {
             .remove(PREF_DEVICE_UUID)
             .remove(PREF_DEVICE_TOKEN)
             .remove(PREF_DEVICE_ACTIVE)
+            .remove(PREF_DEVICE_NAME)
             .remove(PREF_LAST_PUSHED_LOG_ID)
             .remove(PREF_NEXT_AUTO_PUSH_AT_MS)
+            .remove(PREF_LOCAL_IN_CAL)
+            .remove(PREF_LOCAL_IN_STATS)
             .apply()
+        dbHelper.untrackAllRemoteDevices()
     }
 
     fun saveServerIp(ip: String) {
@@ -114,6 +120,7 @@ class SyncManager(private val context: Context) {
                     .putString(PREF_DEVICE_UUID, result.uuid)
                     .putString(PREF_DEVICE_TOKEN, result.token)
                     .putBoolean(PREF_DEVICE_ACTIVE, result.is_active)
+                    .putString(PREF_DEVICE_NAME, name)
                     .putLong(PREF_LAST_PUSHED_LOG_ID, 0L)
                     .apply()
                 onComplete(
@@ -156,6 +163,271 @@ class SyncManager(private val context: Context) {
                 }
             }
         })
+    }
+
+    fun getLocalDeviceName(): String =
+        prefs.getString(PREF_DEVICE_NAME, null)?.takeIf { it.isNotBlank() } ?: defaultDeviceName()
+
+    fun isLocalInCal(): Boolean = prefs.getBoolean(PREF_LOCAL_IN_CAL, true)
+
+    fun isLocalInStats(): Boolean = prefs.getBoolean(PREF_LOCAL_IN_STATS, true)
+
+    fun updateDeviceVisibility(uuid: String, inCal: Boolean?, inStats: Boolean?) {
+        val localUuid = getDeviceUuid()
+        if (uuid == RemoteLogSync.LOCAL_DEVICE_KEY || (localUuid != null && uuid == localUuid)) {
+            val edit = prefs.edit()
+            if (inCal != null) edit.putBoolean(PREF_LOCAL_IN_CAL, inCal)
+            if (inStats != null) edit.putBoolean(PREF_LOCAL_IN_STATS, inStats)
+            edit.apply()
+        } else {
+            dbHelper.updateRemoteDeviceVisibility(uuid, inCal, inStats)
+        }
+    }
+
+    fun getLocalDevicesSnapshot(): List<ManagedDevice> = getDevicesBlocking(refreshFromServer = false)
+
+    fun getDevicesBlocking(refreshFromServer: Boolean = true): List<ManagedDevice> {
+        val serverUuids: Set<String>? = if (refreshFromServer && isActive()) {
+            val ip = getServerIp()
+            val token = getDeviceToken()
+            if (ip != null && token != null) {
+                when (val outcome = syncDevicesFromServerOutcome(ip, token)) {
+                    is DeviceSyncOutcome.Ok -> outcome.byUuid.keys
+                    is DeviceSyncOutcome.AuthFailed -> throw IOException(outcome.message)
+                    is DeviceSyncOutcome.TransientFailed -> null
+                }
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+
+        val localDevice = ManagedDevice(
+            uuid = getDeviceUuid() ?: RemoteLogSync.LOCAL_DEVICE_KEY,
+            name = getLocalDeviceName(),
+            isLocal = true,
+            isTracking = false,
+            lastSyncId = prefs.getLong(PREF_LAST_PUSHED_LOG_ID, 0L),
+            inCal = isLocalInCal(),
+            inStats = isLocalInStats(),
+            availableOnServer = true,
+            hasLocalLogs = true
+        )
+        val remoteDevices = dbHelper.getRemoteDevices().map { row ->
+            ManagedDevice(
+                uuid = row.uuid,
+                name = row.name,
+                isLocal = false,
+                isTracking = row.isTracking,
+                lastSyncId = row.lastSyncId,
+                inCal = row.inCal,
+                inStats = row.inStats,
+                availableOnServer = serverUuids?.contains(row.uuid) ?: true,
+                hasLocalLogs = row.hasLocalLogs
+            )
+        }
+        return listOf(localDevice) + remoteDevices
+    }
+
+    private sealed class DeviceSyncOutcome {
+        data class Ok(val byUuid: Map<String, ServerDevice>) : DeviceSyncOutcome()
+        data class AuthFailed(val message: String) : DeviceSyncOutcome()
+        data class TransientFailed(val message: String) : DeviceSyncOutcome()
+    }
+
+    private fun syncDevicesFromServerOutcome(ip: String, token: String): DeviceSyncOutcome {
+        val request = Request.Builder()
+            .url(baseUrl(ip) + "/v1/devices")
+            .header("Authorization", "Bearer $token")
+            .get()
+            .build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                when {
+                    response.isSuccessful -> {
+                        val body = response.body?.string() ?: "[]"
+                        val list = gson.fromJson(body, Array<ServerDevice>::class.java)?.toList() ?: emptyList()
+                        val serverUuids = list.map { it.uuid }.toSet()
+                        val localUuid = getDeviceUuid()
+                        if (isActive() && localUuid != null && localUuid !in serverUuids) {
+                            clearRegistration()
+                            return DeviceSyncOutcome.AuthFailed("Device registration was removed. Register again.")
+                        }
+                        dbHelper.upsertRemoteDevicesFromServer(list.map { it.uuid to it.name }, localUuid)
+                        DeviceSyncOutcome.Ok(list.associateBy { it.uuid })
+                    }
+                    response.code == 401 || response.code == 403 ->
+                        DeviceSyncOutcome.AuthFailed(syncErrorMessage(response.code, "Device list"))
+                    else ->
+                        DeviceSyncOutcome.TransientFailed(syncErrorMessage(response.code, "Device list"))
+                }
+            }
+        } catch (e: IOException) {
+            DeviceSyncOutcome.TransientFailed("Device list failed: ${e.message}")
+        } catch (e: Exception) {
+            DeviceSyncOutcome.TransientFailed("Device list error: ${e.message}")
+        }
+    }
+
+    fun subscribeDeviceBlocking(uuid: String, name: String?): Result<Int> {
+        if (!isActive()) return Result.failure(IOException("Device is waiting for admin approval"))
+        if (uuid.isBlank() || uuid == getDeviceUuid() || uuid == RemoteLogSync.LOCAL_DEVICE_KEY) {
+            return Result.failure(IOException("Cannot subscribe to this device"))
+        }
+        val existing = dbHelper.getRemoteDevices().find { it.uuid == uuid }
+        val wasTracked = existing?.isTracking == true
+        val hadLocalLogs = existing?.hasLocalLogs == true
+        synchronized(remoteDbLock) {
+            dbHelper.setRemoteDeviceTracking(uuid, name, true)
+        }
+        return when (val result = downloadDeviceLogsBlocking(deviceUuid = uuid)) {
+            is DownloadResult.Success -> Result.success(result.count)
+            is DownloadResult.Failed -> {
+                if (!wasTracked && !hadLocalLogs) {
+                    synchronized(remoteDbLock) {
+                        dbHelper.setRemoteDeviceTracking(uuid, null, false)
+                    }
+                }
+                Result.failure(IOException(result.message))
+            }
+        }
+    }
+
+    fun unsubscribeDeviceBlocking(uuid: String) {
+        synchronized(remoteDbLock) {
+            dbHelper.unsubscribeRemoteDevice(uuid)
+        }
+    }
+
+    sealed class DownloadResult {
+        data class Success(val count: Int) : DownloadResult()
+        data class Failed(val message: String, val retry: Boolean) : DownloadResult()
+    }
+
+    fun downloadDeviceLogsBlocking(deviceUuid: String? = null): DownloadResult = synchronized(downloadLock) {
+        if (!isActive()) return@synchronized DownloadResult.Success(0)
+        val ip = getServerIp() ?: return@synchronized DownloadResult.Failed("No server configured", retry = false)
+        val token = getDeviceToken() ?: return@synchronized DownloadResult.Failed("Not registered", retry = false)
+
+        if (deviceUuid == null && dbHelper.getTrackedRemoteDevices(null).isEmpty()) {
+            return@synchronized DownloadResult.Success(0)
+        }
+
+        val serverByUuid = when (val outcome = syncDevicesFromServerOutcome(ip, token)) {
+            is DeviceSyncOutcome.Ok -> outcome.byUuid
+            is DeviceSyncOutcome.AuthFailed -> return@synchronized DownloadResult.Failed(outcome.message, retry = false)
+            is DeviceSyncOutcome.TransientFailed -> emptyMap()
+        }
+
+        val devices = dbHelper.getTrackedRemoteDevices(deviceUuid)
+        if (devices.isEmpty()) return@synchronized DownloadResult.Success(0)
+
+        val payload = devices.map { DeviceLogsRequest(it.uuid, it.name, it.lastSyncId, true) }
+        val request = Request.Builder()
+            .url(baseUrl(ip) + "/v1/devices/")
+            .header("Authorization", "Bearer $token")
+            .post(gson.toJson(payload).toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return@synchronized try {
+            client.newCall(request).execute().use { response ->
+                when {
+                    response.isSuccessful -> {
+                        val body = response.body ?: return@synchronized DownloadResult.Success(0)
+                        val allowed = devices.map { it.uuid }.toSet()
+                        val cursors = devices.associate { it.uuid to it.lastSyncId }
+                        val (count, maxIds) = JsonReader(body.charStream()).use { reader ->
+                            RemoteLogSync.parseBackendLogStream(reader, gson, allowed, cursors) { batch ->
+                                synchronized(remoteDbLock) {
+                                    val stillTracked = batch.filter { dbHelper.isRemoteDeviceTracked(it.deviceUuid) }
+                                    if (stillTracked.isNotEmpty()) {
+                                        dbHelper.insertRemoteLogsBatch(stillTracked)
+                                    }
+                                }
+                            }
+                        }
+                        synchronized(remoteDbLock) {
+                            for ((uuid, maxId) in maxIds) {
+                                if (dbHelper.isRemoteDeviceTracked(uuid)) {
+                                    dbHelper.advanceRemoteDeviceSyncId(uuid, maxId)
+                                }
+                            }
+                        }
+                        DownloadResult.Success(count)
+                    }
+                    response.code == 405 -> downloadLegacyDeviceLogs(ip, token, devices, serverByUuid)
+                    response.code == 401 || response.code == 403 ->
+                        DownloadResult.Failed(syncErrorMessage(response.code, "Download"), retry = false)
+                    else -> {
+                        val retry = response.code >= 500 || response.code == 408 || response.code == 429
+                        DownloadResult.Failed(syncErrorMessage(response.code, "Download"), retry)
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            DownloadResult.Failed("Download failed: ${e.message}", retry = true)
+        } catch (e: Exception) {
+            DownloadResult.Failed("Download error: ${e.message}", retry = true)
+        }
+    }
+
+    private fun downloadLegacyDeviceLogs(
+        ip: String,
+        token: String,
+        devices: List<RemoteDeviceRow>,
+        serverByUuid: Map<String, ServerDevice>
+    ): DownloadResult {
+        var total = 0
+        for (device in devices) {
+            if (RemoteLogSync.shouldSkipLegacyDeviceFetch(device.lastSyncId, serverByUuid[device.uuid]?.last_sync_id)) {
+                continue
+            }
+            val request = Request.Builder()
+                .url(baseUrl(ip) + "/v1/devices/${device.uuid}?after=${device.lastSyncId}")
+                .header("Authorization", "Bearer $token")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                when {
+                    response.code == 404 -> {
+                        synchronized(remoteDbLock) {
+                            dbHelper.setRemoteDeviceTracking(device.uuid, null, false)
+                        }
+                    }
+                    response.code == 401 || response.code == 403 ->
+                        return DownloadResult.Failed(syncErrorMessage(response.code, "Download"), retry = false)
+                    !response.isSuccessful -> {
+                        val retry = response.code >= 500 || response.code == 408 || response.code == 429
+                        return DownloadResult.Failed(syncErrorMessage(response.code, "Download"), retry)
+                    }
+                    else -> {
+                        val body = response.body ?: return@use
+                        val allowed = setOf(device.uuid)
+                        val cursors = mapOf(device.uuid to device.lastSyncId)
+                        val (count, maxIds) = JsonReader(body.charStream()).use { reader ->
+                            RemoteLogSync.parseBackendLogStream(reader, gson, allowed, cursors) { batch ->
+                                synchronized(remoteDbLock) {
+                                    val stillTracked = batch.filter { dbHelper.isRemoteDeviceTracked(it.deviceUuid) }
+                                    if (stillTracked.isNotEmpty()) {
+                                        dbHelper.insertRemoteLogsBatch(stillTracked)
+                                    }
+                                }
+                            }
+                        }
+                        synchronized(remoteDbLock) {
+                            maxIds[device.uuid]?.let { maxId ->
+                                if (dbHelper.isRemoteDeviceTracked(device.uuid)) {
+                                    dbHelper.advanceRemoteDeviceSyncId(device.uuid, maxId)
+                                }
+                            }
+                        }
+                        total += count
+                    }
+                }
+            }
+        }
+        return DownloadResult.Success(total)
     }
 
     fun fetchActiveDevices(onComplete: (Result<List<ServerDevice>>) -> Unit) {
@@ -232,16 +504,23 @@ class SyncManager(private val context: Context) {
         val token = getDeviceToken()!!
         val deviceUuid = getDeviceUuid()!!
 
-        when (val result = uploadChanges(ip, token, deviceUuid)) {
-            is UploadResult.Failed -> onComplete(false, result.message)
-            UploadResult.NothingToSend -> finishNotesSync(ip, token, "Notes synced", onComplete)
-            is UploadResult.Sent -> {
-                val parts = mutableListOf<String>()
-                if (result.logs > 0) parts.add("pushed ${result.logs} logs")
-                if (result.deleted > 0) parts.add("deleted ${result.deleted} on server")
-                finishNotesSync(ip, token, (parts + "notes synced").joinToString(", ").replaceFirstChar { it.uppercase() }, onComplete)
-            }
+        val uploadResult = uploadChanges(ip, token, deviceUuid)
+        if (uploadResult is UploadResult.Failed) {
+            return onComplete(false, uploadResult.message)
         }
+        try { ManualTimerStore.sync(context, client, baseUrl(ip), token) }
+        catch (e: Exception) { return onComplete(false, "Manual timer sync failed: ${e.message}") }
+        try { NotesStore.sync(context, client, baseUrl(ip), token) }
+        catch (e: Exception) { return onComplete(false, "Notes sync failed: ${e.message}") }
+
+        val downloaded = when (val downloadResult = downloadDeviceLogsBlocking(null)) {
+            is DownloadResult.Success -> downloadResult.count
+            is DownloadResult.Failed -> return onComplete(false, downloadResult.message)
+        }
+        resetNextAutoPush()
+        val pushed = (uploadResult as? UploadResult.Sent)?.logs ?: 0
+        val deleted = (uploadResult as? UploadResult.Sent)?.deleted ?: 0
+        onComplete(true, RemoteLogSync.formatSyncSummary(pushed, deleted, downloaded))
     }
 
     private sealed class UploadResult {
@@ -318,11 +597,17 @@ class SyncManager(private val context: Context) {
         catch (e: Exception) { return BlockingSyncResult(false, "Notes sync failed: ${e.message}", shouldRetry = true) }
         val deviceUuid = getDeviceUuid()
             ?: return BlockingSyncResult(false, "Registration is incomplete")
-        return when (val result = uploadChanges(ip, token, deviceUuid)) {
-            is UploadResult.Failed -> BlockingSyncResult(false, result.message, result.retry)
-            UploadResult.NothingToSend -> BlockingSyncResult(true, "Nothing to sync")
-            is UploadResult.Sent -> BlockingSyncResult(true, "Synced")
+        val uploadResult = uploadChanges(ip, token, deviceUuid)
+        if (uploadResult is UploadResult.Failed) {
+            return BlockingSyncResult(false, uploadResult.message, uploadResult.retry)
         }
+        val downloadResult = downloadDeviceLogsBlocking(null)
+        if (downloadResult is DownloadResult.Failed) {
+            return BlockingSyncResult(false, downloadResult.message, downloadResult.retry)
+        }
+        val downloaded = (downloadResult as DownloadResult.Success).count
+        val hasSent = uploadResult is UploadResult.Sent || downloaded > 0
+        return BlockingSyncResult(true, if (hasSent) "Synced" else "Nothing to sync")
     }
 
     private fun checkActivationBlocking(ip: String, token: String): BlockingSyncResult {
@@ -369,10 +654,11 @@ class SyncManager(private val context: Context) {
             gson.fromJson(responseBody, StatusResponse::class.java)
         }.getOrNull() ?: return null
         if (status.uuid.isBlank()) return null
-        prefs.edit()
+        val edit = prefs.edit()
             .putString(PREF_DEVICE_UUID, status.uuid)
             .putBoolean(PREF_DEVICE_ACTIVE, status.is_active)
-            .apply()
+        if (status.name.isNotBlank()) edit.putString(PREF_DEVICE_NAME, status.name)
+        edit.apply()
         return status
     }
 
@@ -395,6 +681,7 @@ class SyncManager(private val context: Context) {
             .remove(PREF_DEVICE_UUID)
             .remove(PREF_DEVICE_TOKEN)
             .remove(PREF_DEVICE_ACTIVE)
+            .remove(PREF_DEVICE_NAME)
             .remove(PREF_LAST_PUSHED_LOG_ID)
             .remove(PREF_NEXT_AUTO_PUSH_AT_MS)
             .apply()
@@ -433,7 +720,32 @@ class SyncManager(private val context: Context) {
     private fun baseUrl(ip: String): String = "http://$ip:8765"
 
     data class RegisterPayload(val name: String)
-    data class ServerDevice(val uuid:String, val name:String)
+    data class ServerDevice(
+        val uuid: String,
+        val name: String,
+        @SerializedName("last_sync_id") val last_sync_id: Long? = null,
+        @SerializedName("last_log_received_at") val last_log_received_at: Long? = null,
+        @SerializedName("is_active") val is_active: Boolean? = null
+    )
+
+    data class DeviceLogsRequest(
+        val uuid: String,
+        val name: String,
+        @SerializedName("last_sync_id") val last_sync_id: Long,
+        @SerializedName("is_active") val is_active: Boolean = true
+    )
+
+    data class ManagedDevice(
+        val uuid: String,
+        val name: String,
+        val isLocal: Boolean,
+        val isTracking: Boolean,
+        val lastSyncId: Long,
+        val inCal: Boolean,
+        val inStats: Boolean,
+        val availableOnServer: Boolean,
+        val hasLocalLogs: Boolean
+    )
 
     data class RegisterResponse(
         val uuid: String,
@@ -451,8 +763,8 @@ class SyncManager(private val context: Context) {
 
     data class BackendLog(
         val id: Long,
-        @SerializedName("device_uuid") val device_uuid: String,
-        val app: String,
+        @SerializedName("device_uuid") val device_uuid: String?,
+        val app: String?,
         val timestamp: Long,
         val duration: Long
     )
@@ -473,9 +785,23 @@ class SyncManager(private val context: Context) {
         private const val PREF_DEVICE_UUID = "device_uuid"
         private const val PREF_DEVICE_TOKEN = "device_token"
         private const val PREF_DEVICE_ACTIVE = "device_active"
+        private const val PREF_DEVICE_NAME = "device_name"
         private const val PREF_LAST_PUSHED_LOG_ID = "last_pushed_log_id"
         private const val PREF_NEXT_AUTO_PUSH_AT_MS = "next_auto_push_at_ms"
+        private const val PREF_LOCAL_IN_CAL = "local_in_cal"
+        private const val PREF_LOCAL_IN_STATS = "local_in_stats"
         /** One upload at a time, so two syncs never send the same logs or race on the cursor. */
         private val uploadLock = Any()
+        /** One remote log download at a time. */
+        private val downloadLock = Any()
+        /** Protects remote log writes against concurrent unsubscriptions. */
+        private val remoteDbLock = Any()
+        private val sharedClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
+                .build()
+        }
     }
 }

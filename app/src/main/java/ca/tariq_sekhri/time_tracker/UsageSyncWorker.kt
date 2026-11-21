@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
+import java.util.Calendar
 
 class UsageSyncWorker(
     appContext: Context,
@@ -29,6 +30,20 @@ object UsageSyncScheduler {
     private const val IMMEDIATE_WORK_NAME = "android-usage-import-and-sync-now"
 
     fun schedule(context: Context) {
+        val now = Calendar.getInstance()
+        val next = (now.clone() as Calendar).apply {
+            firstDayOfWeek = Calendar.MONDAY
+            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+            set(Calendar.HOUR_OF_DAY, 9)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis <= now.timeInMillis) add(Calendar.WEEK_OF_YEAR, 1)
+        }
+        val recap = PeriodicWorkRequestBuilder<WeeklyRecapWorker>(7, TimeUnit.DAYS)
+            .setInitialDelay(next.timeInMillis - now.timeInMillis, TimeUnit.MILLISECONDS)
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork("weekly-recap", ExistingPeriodicWorkPolicy.KEEP, recap)
         val request = PeriodicWorkRequestBuilder<UsageSyncWorker>(15, TimeUnit.MINUTES)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()

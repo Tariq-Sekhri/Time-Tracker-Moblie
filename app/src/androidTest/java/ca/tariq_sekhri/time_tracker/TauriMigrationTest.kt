@@ -84,6 +84,10 @@ class TauriMigrationTest {
         var socket: WebSocket? = null
         var timer: JSONObject? = null
         var notes = ""
+        var desktopLogs = JSONArray("""[
+            {"id":1,"device_uuid":"qa-desktop","app":"Visual Studio Code","timestamp":${(now - 90000) / 1000},"duration":30},
+            {"id":2,"device_uuid":"qa-desktop","app":"Chrome","timestamp":${(now - 50000) / 1000},"duration":20}
+        ]""")
         val uploads = mutableListOf<JSONObject>()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
@@ -92,7 +96,22 @@ class TauriMigrationTest {
                     "/v1/check" -> json(JSONObject.quote(SyncManager.EXPECTED_CHECK_RESPONSE))
                     "/v1/register" -> json("""{"uuid":"qa-device","token":"qa-only-token","is_active":true}""")
                     "/v1/status" -> json("""{"uuid":"qa-device","name":"QA phone","is_active":true}""")
-                    "/v1/devices" -> json("""[{"uuid":"qa-device","name":"QA phone"},{"uuid":"qa-desktop","name":"QA desktop"}]""")
+                    "/v1/devices" -> json("""[{"uuid":"qa-device","name":"QA phone","last_sync_id":0,"is_active":true},{"uuid":"qa-desktop","name":"QA desktop","last_sync_id":2,"is_active":true}]""")
+                    "/v1/devices/" -> {
+                        val requested = JSONArray(request.body.readUtf8())
+                        val out = JSONArray()
+                        for (i in 0 until requested.length()) {
+                            val dev = requested.getJSONObject(i)
+                            if (dev.getString("uuid") == "qa-desktop") {
+                                val after = dev.getLong("last_sync_id")
+                                for (j in 0 until desktopLogs.length()) {
+                                    val log = desktopLogs.getJSONObject(j)
+                                    if (log.getLong("id") > after) out.put(log)
+                                }
+                            }
+                        }
+                        json(out.toString())
+                    }
                     "/v1/ws" -> MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                         override fun onOpen(webSocket: WebSocket, response: Response) { socket = webSocket; webSocket.send("""{"type":"timer","timer":null}""") }
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
@@ -146,6 +165,28 @@ class TauriMigrationTest {
             assertFalse(helper.getDeletedLogIds().contains(id))
             assertTrue(synchronized(uploads) { uploads.any { body -> val deleted = body.optJSONArray("deleted_log_ids") ?: JSONArray(); (0 until deleted.length()).any { deleted.getLong(it) == id } } })
             assertEquals(2, (bridge("sync.devices") as JSONArray).length())
+            val subscribed = bridge("sync.subscribe", JSONObject().put("uuid", "qa-desktop").put("name", "QA desktop")) as JSONObject
+            assertEquals(2, subscribed.getInt("downloaded"))
+            val combinedLogs = bridge("logs", range) as JSONArray
+            assertTrue((0 until combinedLogs.length()).any { combinedLogs.getJSONObject(it).optBoolean("is_remote") && combinedLogs.getJSONObject(it).getString("app_name") == "Visual Studio Code" })
+            val remoteOnlyUsage = bridge("usage", JSONObject().put("startMs", now - 180000).put("endMs", now).put("deviceUuid", "qa-desktop")) as JSONObject
+            assertEquals(50L, remoteOnlyUsage.getLong("total"))
+
+            desktopLogs.put(JSONObject("""{"id":3,"device_uuid":"qa-desktop","app":"Terminal","timestamp":${(now - 20000) / 1000},"duration":10}"""))
+            bridge("sync.now")
+            val incrementalUsage = bridge("usage", JSONObject().put("startMs", now - 180000).put("endMs", now).put("deviceUuid", "qa-desktop")) as JSONObject
+            assertEquals(60L, incrementalUsage.getLong("total"))
+
+            bridge("device.update", JSONObject().put("uuid", "qa-desktop").put("in_stats", false))
+            val hiddenStats = bridge("usage", JSONObject().put("startMs", now - 180000).put("endMs", now).put("scope", "stats")) as JSONObject
+            assertTrue(hiddenStats.getLong("total") < 120L)
+
+            bridge("log.delete", JSONObject().put("id", 1).put("device_uuid", "qa-desktop").put("is_remote", true))
+            assertFalse(helper.getDeletedLogIds().contains(1L))
+            bridge("sync.unsubscribe", JSONObject().put("uuid", "qa-desktop"))
+            val afterUnsubscribe = bridge("usage", JSONObject().put("startMs", now - 180000).put("endMs", now).put("deviceUuid", "qa-desktop")) as JSONObject
+            assertEquals(0L, afterUnsubscribe.getLong("total"))
+
             bridge("sync.change")
             assertTrue(context.getSharedPreferences(NotesStore.PREFS, 0).getString(NotesStore.CONTENT, "")!!.contains("Migration QA note"))
             js("location.reload(); true")
