@@ -36,6 +36,13 @@
         </activity>
 
         <activity
+            android:name=".PackageMigrationActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:permission="android.permission.DUMP"
+            android:process=":package_migration" />
+
+        <activity
             android:name=".LogsActivity"
             android:parentActivityName=".MainActivity" />
 
