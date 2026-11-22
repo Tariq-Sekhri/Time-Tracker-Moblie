@@ -24,7 +24,7 @@ npm run android:check
 
 `android:apk` builds a bundled arm64 debug APK. `android:qa` builds an x86_64
 emulator APK. Neither requires a running development server. Debug builds use
-`ca.tariq_sekhri.time_tracker.dev`, with isolated storage and standard debug signing.
+`ca.sekhrit.timetracker.dev`, with isolated storage and standard debug signing.
 Outputs are under `src-tauri/gen/android/app/build/outputs/apk/`.
 The build helper verifies the packaged application ID and tracking services.
 

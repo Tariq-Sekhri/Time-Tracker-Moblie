@@ -23,10 +23,10 @@ val releaseStore = signingValue("storeFile", "RELEASE_STORE_FILE")
 
 android {
     compileSdk = 36
-    namespace = "ca.tariq_sekhri.time_tracker"
+    namespace = "ca.sekhrit.timetracker"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "ca.tariq_sekhri.time_tracker"
+        applicationId = "ca.sekhrit.timetracker"
         minSdk = 33
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

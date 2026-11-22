@@ -2,7 +2,9 @@
 
 The Android application keeps its Kotlin tracking engine, SQLite database
 (`time_tracker.db`), SharedPreferences, service component names and release
-application ID (`ca.tariq_sekhri.time_tracker`). Tauri hosts bundled React assets.
+application ID used for the October 2026 Tauri migration
+(`ca.tariq_sekhri.time_tracker`). The current release package is
+`ca.sekhrit.timetracker`. Tauri hosts bundled React assets.
 The desktop repository next to this checkout owns the shared React source.
 
 Work is on `migration/tauri-mobile` in both repositories. Nothing is pushed.

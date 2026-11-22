@@ -38,11 +38,11 @@ val appVersionName =
         ?: "0.5.2"
 
 android {
-    namespace = "ca.tariq_sekhri.time_tracker"
+    namespace = "ca.sekhrit.timetracker"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "ca.tariq_sekhri.time_tracker"
+        applicationId = "ca.sekhrit.timetracker"
         minSdk = 33
         targetSdk = 36
         versionCode = appVersionCode

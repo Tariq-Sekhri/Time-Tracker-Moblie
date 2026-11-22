@@ -26,7 +26,7 @@ Signing uses the existing `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`
 
 Google verifies owner ID `34610622`, repository ID `1273985798`, and `main`.
 Only this repository can impersonate this app's publisher; its Play permissions
-cover viewing and testing releases for `ca.tariq_sekhri.time_tracker` only.
+cover viewing and testing releases for `ca.sekhrit.timetracker` only.
 Publishing uses a short-lived OIDC token without a stored Google account key.
 Production promotion remains a separate Play Console action.
 

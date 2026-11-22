@@ -166,4 +166,4 @@ jobs:
           PLAY_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
           VERSION_CODE: ${{ needs.build-release-apk.outputs.version_code }}
           RELEASE_NAME: ${{ needs.build-release-apk.outputs.release_name }}
-        run: python3 scripts/publish-play.py ca.tariq_sekhri.time_tracker play-bundle/app-universal-release.aab "$VERSION_CODE" "$RELEASE_NAME"
+        run: python3 scripts/publish-play.py ca.sekhrit.timetracker play-bundle/app-universal-release.aab "$VERSION_CODE" "$RELEASE_NAME"

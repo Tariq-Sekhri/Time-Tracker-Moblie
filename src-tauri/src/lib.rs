@@ -69,7 +69,7 @@ pub fn run() {
         tauri::plugin::Builder::<tauri::Wry>::new("tracker")
             .setup(|app, api| {
                 let handle =
-                    api.register_android_plugin("ca.tariq_sekhri.time_tracker", "TrackerPlugin")?;
+                    api.register_android_plugin("ca.sekhrit.timetracker", "TrackerPlugin")?;
                 app.manage(Tracker(handle));
                 Ok(())
             })
